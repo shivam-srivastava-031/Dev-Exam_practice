@@ -1,0 +1,5 @@
+# Local development: run the server, rebuild the data and models, run the tests.
+-r requirements.txt
+uvicorn[standard]>=0.30
+scikit-learn>=1.5
+pytest>=8

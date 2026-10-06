@@ -1,0 +1,31 @@
+{
+  "repo": "shivam-srivastava-031/Dev-Exam_practice",
+  "tag": "data-v1",
+  "created": "2026-10-06",
+  "assets": {
+    "exam-bank.db.gz": {
+      "sha256": "d71612a9098afb81cb3b6938bc979b6b1c01e11bcfd1a11a4447eeb02a344e83",
+      "bytes": 93938662,
+      "questions": 144928,
+      "papers": 1397,
+      "max_question_id": 144928
+    },
+    "rag-index.tar.gz": {
+      "sha256": "b370549eac6546ce5a5c99472133523582b39ceedacdc47607d6a1024e6290a9",
+      "bytes": 65012228,
+      "vectors": 144928,
+      "dim": 512
+    },
+    "topic-model.npz": {
+      "sha256": "1d836b1ae908870c4ec7c7b50971cd3992da61faad7cb98805e26492c63eccf8",
+      "bytes": 29450741
+    },
+    "embedding-model.tar.gz": {
+      "sha256": "845dde57129ee1d56d9d4ea19310a2c69d6c6da760bc013dd9c0c7e6e3a8b473",
+      "bytes": 60926375,
+      "model": "minishlab/potion-retrieval-32M",
+      "license": "MIT",
+      "dtype": "float16"
+    }
+  }
+}

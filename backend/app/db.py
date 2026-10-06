@@ -8,6 +8,7 @@ Questions the AI generator writes carry origin = 'ai' and never mix into PYQ pap
 from __future__ import annotations
 
 import sqlite3
+import zlib
 from pathlib import Path
 
 SCHEMA = """
@@ -119,6 +120,11 @@ CREATE INDEX IF NOT EXISTS ix_attempts_time ON attempts(created_at);
 CREATE INDEX IF NOT EXISTS ix_mocks_paper ON mocks(paper_id);
 CREATE INDEX IF NOT EXISTS ix_reviews_due ON reviews(due);
 """
+
+
+def text(value: str | bytes | None) -> str | None:
+    """Solutions are zlib-compressed in the deployed question bank (half its size); read either form."""
+    return zlib.decompress(value).decode() if isinstance(value, bytes) else value
 
 
 def connect(path: Path | str) -> sqlite3.Connection:

@@ -1,7 +1,5 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
+# Runtime dependencies: what the deployed API needs (Vercel installs these).
+fastapi>=0.142
 httpx>=0.27
 numpy>=2.0
-scikit-learn>=1.5
 model2vec>=0.6
-pytest>=8

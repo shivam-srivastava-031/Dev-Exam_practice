@@ -6,6 +6,7 @@ gitignored so the key never lands in the repository.
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -26,12 +27,33 @@ def _load_dotenv(path: Path) -> None:
 
 _load_dotenv(BACKEND_DIR / ".env")
 
-DB_PATH = Path(os.environ.get("EXAM_DB", BACKEND_DIR / "exam.db"))
-DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT_DIR / "data"))
+# On Vercel (or with USE_BUNDLE=1) the app runs from the pre-built artefacts that
+# deploy/fetch_artifacts.py downloads from the GitHub Release: the question bank,
+# vector index and pre-trained models, read-only. The database is copied to the
+# writable temp dir at startup, and the learner's progress is kept in Turso.
+ON_VERCEL = bool(os.environ.get("VERCEL"))
+BUNDLE_DIR = BACKEND_DIR / "deploy_data"
+USE_BUNDLE = ON_VERCEL or os.environ.get("USE_BUNDLE") == "1"
+
+if USE_BUNDLE:
+    os.environ.setdefault("HF_HOME", str(Path(tempfile.gettempdir()) / "hf"))  # bundle is read-only
+    DB_PATH = Path(os.environ.get("EXAM_DB", Path(tempfile.gettempdir()) / "exam.db"))
+    DATA_DIR = Path(os.environ.get("DATA_DIR", BUNDLE_DIR))
+    SEED_DB: Path | None = BUNDLE_DIR / "exam.db"
+    EMBED_MODEL = os.environ.get("EMBED_MODEL", str(DATA_DIR / "models" / "potion-retrieval-32M"))
+else:
+    DB_PATH = Path(os.environ.get("EXAM_DB", BACKEND_DIR / "exam.db"))
+    DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT_DIR / "data"))
+    SEED_DB = None
+    EMBED_MODEL = os.environ.get("EMBED_MODEL", "minishlab/potion-retrieval-32M")
+
 DATASET_DIR = Path(os.environ.get("DATASET_DIR", DATA_DIR / "source"))
 INDEX_DIR = DATA_DIR / "index"        # dense vectors for RAG search
-MODELS_DIR = DATA_DIR / "models"      # embedding model cache + trained topic model
-EMBED_MODEL = os.environ.get("EMBED_MODEL", "minishlab/potion-retrieval-32M")
+MODELS_DIR = DATA_DIR / "models"      # embedding model + trained topic model
+
+# Turso (hosted SQLite) keeps the learner's progress when the filesystem is ephemeral.
+TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "").strip()
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
 DATASET_REPO = os.environ.get(
     "DATASET_REPO", "https://github.com/akarohitmishra/repeatermock-subjectwise-db.git"
 )

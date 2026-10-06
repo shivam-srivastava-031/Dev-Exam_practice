@@ -17,7 +17,7 @@ import re
 import sqlite3
 import uuid
 
-from . import ai, rag, topic_model
+from . import ai, db, rag, topic_model
 from .catalog import EXAMS, PATTERNS, SUBJECTS, chapter_label, stage_name
 
 GEN_SYSTEM = """You are a senior question setter for Indian SSC exams. You write original multiple-choice
@@ -120,7 +120,7 @@ async def generate(conn: sqlite3.Connection, exam: str, stage: str, subject: str
     for i, ex in enumerate(examples, 1):
         opts = json.loads(ex["options"])
         shots.append(f"Example {i}:\n{ex['question']}\n" + "\n".join(f"{j + 1}) {o}" for j, o in enumerate(opts))
-                     + f"\nAnswer: {ex['answer'] + 1}\nSolution: {(ex['solution'] or '')[:500]}")
+                     + f"\nAnswer: {ex['answer'] + 1}\nSolution: {(db.text(ex['solution']) or '')[:500]}")
     prompt = (
         f"Exam: {EXAMS[exam]} {stage_name(exam, stage)}. Subject: {SUBJECTS[subject]}. Topic: {label}.\n\n"
         "Real previous-year questions on this topic, for style and difficulty only:\n\n" + "\n\n".join(shots) +
