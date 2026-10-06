@@ -4,8 +4,53 @@ import type {
   PracticeQuestion, QuestionPage, SearchResponse, Stats, TopicGuess, TrainingReport,
 } from './types';
 
+// The newest progress version any response has carried. The live site runs on several server
+// instances at once; sending this back lets one that has not yet seen your latest answers,
+// bookmarks or mocks catch up before it replies. Shared across tabs, and survives a reload.
+const VERSION_KEY = 'progress-version';
+let progressVersion = 0;
+
+function syncHeaders(): Record<string, string> {
+  try {
+    progressVersion = Math.max(progressVersion, Number(localStorage.getItem(VERSION_KEY)) || 0);
+  } catch {
+    /* storage blocked: the in-memory copy still covers this tab */
+  }
+  return progressVersion ? { 'X-Progress-Version': String(progressVersion) } : {};
+}
+
+function noteVersion(res: Response) {
+  const v = Number(res.headers.get('X-Progress-Version'));
+  if (!(v > progressVersion)) return;
+  progressVersion = v;
+  try {
+    localStorage.setItem(VERSION_KEY, String(v));
+  } catch {
+    /* see above */
+  }
+}
+
+const RETRY_DELAYS_MS = [400, 1200, 3000];
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** fetch with progress-version headers. Reads are retried through dropped connections and 502-504s. */
+async function send(path: string, init?: RequestInit): Promise<Response> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  for (let attempt = 0; ; attempt++) {
+    const retry = method === 'GET' && attempt < RETRY_DELAYS_MS.length && !init?.signal?.aborted;
+    try {
+      const res = await fetch(path, { ...init, headers: { ...syncHeaders(), ...init?.headers } });
+      noteVersion(res);
+      if (!retry || ![502, 503, 504].includes(res.status)) return res;
+    } catch (e) {
+      if (!retry || (e instanceof DOMException && e.name === 'AbortError')) throw e;
+    }
+    await wait(RETRY_DELAYS_MS[attempt]);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await send(path, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   });
@@ -97,7 +142,7 @@ export async function streamText(
   onText: (soFar: string) => void,
   signal?: AbortSignal,
 ): Promise<string> {
-  const res = await fetch(path, {
+  const res = await send(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

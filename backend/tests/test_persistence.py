@@ -73,6 +73,21 @@ def test_writes_from_another_instance_are_picked_up(deployed, turso):
         assert c.get("/api/questions", params={"status": "bookmarked"}).json()["total"] == 1
 
 
+def test_a_browser_ahead_of_the_instance_is_never_served_stale_data(deployed, turso):
+    with deployed("b") as c:
+        res = c.get("/api/mocks")
+        assert res.json() == [] and res.headers["X-Progress-Version"] == "0"
+        # Another instance creates a mock and tells the browser the new version.
+        turso.conn.execute("INSERT INTO mocks (id, kind, pattern_id, title, layout, created_at) "
+                           "VALUES ('m-elsewhere', 'paper', 'cgl-pre', 'CGL', '{}', '2026-01-01 00:00:00')")
+        turso.conn.execute("UPDATE _sync SET v = v + 1")
+        assert c.get("/api/mocks").json() == []  # same browser, no version sent: the 2 s window applies
+        res = c.get("/api/mocks", headers={"X-Progress-Version": "1"})  # within the window, but behind
+        assert [m["id"] for m in res.json()] == ["m-elsewhere"]
+        assert res.headers["X-Progress-Version"] == "1"
+        assert c.get("/api/mocks", headers={"X-Progress-Version": "junk"}).status_code == 200
+
+
 def test_deletes_and_updates_are_synced(deployed, turso):
     with deployed("x") as c:
         qid = c.get("/api/questions").json()["items"][0]["id"]

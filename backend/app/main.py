@@ -63,12 +63,18 @@ app.state.db_path = config.DB_PATH
 
 @app.middleware("http")
 async def sync_progress(request: Request, call_next):
-    """With Turso configured: refresh before an API request, save after a change."""
+    """With Turso configured: refresh before an API request, save after a change.
+
+    Vercel spreads one browser's requests over several instances. Each response carries the
+    progress version it reflects (X-Progress-Version) and the browser sends back the newest it
+    has seen, so an instance that is behind catches up before it answers.
+    """
     syncer = persistence.get()
     if syncer is None or not request.url.path.startswith("/api/"):
         return await call_next(request)
+    seen = request.headers.get("x-progress-version", "")
     try:
-        await run_in_threadpool(syncer.pull_if_stale)
+        await run_in_threadpool(syncer.pull_if_stale, int(seen) if seen.isdigit() else None)
     except (persistence.TursoError, httpx.HTTPError) as e:
         return JSONResponse({"detail": f"Could not reach the progress database: {e}"}, status_code=503)
     response = await call_next(request)
@@ -77,6 +83,8 @@ async def sync_progress(request: Request, call_next):
             await run_in_threadpool(syncer.push)
         except (persistence.TursoError, httpx.HTTPError) as e:
             return JSONResponse({"detail": f"Your change was made but could not be saved: {e}"}, status_code=503)
+    if syncer.version is not None:
+        response.headers["X-Progress-Version"] = str(syncer.version)
     return response
 
 

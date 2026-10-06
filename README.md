@@ -110,6 +110,12 @@ gh release create data-v2 ../release/* --title "Question bank and models v2"
 (about 3 s), pulls your progress, and pushes every change back. The app is **single-user**: anyone with the URL shares the
 same progress and uses your Gemini key.
 
+Vercel runs several instances at once and spreads one browser's requests across them. Every API response carries the
+progress version it reflects (`X-Progress-Version`); the browser sends back the newest one it has seen, and an instance that
+is behind pulls from Turso before answering. So a mock you just created opens on the first try, whichever instance gets
+the request. **Without Turso** each instance keeps its own copy in `/tmp`: mocks show "mock not found" and progress comes
+and goes between pages. `/api/lab` reports `"storage": "ephemeral"` in that case.
+
 One-time setup in the Vercel dashboard:
 
 1. **Add New → Project →** import `shivam-srivastava-031/Dev-Exam_practice`. Vercel reads `vercel.json`.
@@ -151,7 +157,7 @@ Open http://127.0.0.1:8000.
 | `python -m app.rag` | Rebuild the vector index |
 | `python -m app.topic_model train` / `audit` | Retrain the classifier / list probable mislabels |
 | `python -m app.finetune --max 20000` | Export the fine-tuning dataset to `data/finetune/` |
-| `python -m pytest` | 43 tests: import, grading, practice, RAG, topic model, learner model, engine, generator, Turso sync, artifact download |
+| `python -m pytest` | 45 tests: import, grading, practice, RAG, topic model, learner model, engine, generator, Turso sync, artifact download |
 | `USE_BUNDLE=1 python -m uvicorn app.main:app` | Run exactly as deployed: downloads the release into temp storage on start |
 
 **Development:** run the backend with `--reload` and `npm run dev` in `frontend/`. Vite serves http://localhost:5173 and
