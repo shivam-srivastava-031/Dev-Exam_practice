@@ -4,7 +4,7 @@ import shutil
 import pytest
 from fastapi.testclient import TestClient
 
-from app import config, db, persistence
+from app import config, db, main, persistence
 from app.main import app
 from tests.fake_turso import FakeTurso
 
@@ -19,7 +19,12 @@ def deployed(client, tmp_path, turso, monkeypatch):
     """The app as on Vercel: a pristine question bank copied to a temp path, progress in Turso."""
     seed = tmp_path / "seed.db"
     shutil.copyfile(client.app.state.db_path, seed)
-    monkeypatch.setattr(config, "SEED_DB", seed)
+
+    def fake_download(db_path):  # stands in for streaming the bank from the GitHub Release
+        if not db_path.exists():
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(seed, db_path)
+    monkeypatch.setattr(main, "prepare_data", fake_download)
     monkeypatch.setattr(config, "TURSO_URL", "libsql://exam-practice.turso.io")
     monkeypatch.setattr(config, "TURSO_TOKEN", "secret")
     monkeypatch.setattr(persistence, "remote_from_config",

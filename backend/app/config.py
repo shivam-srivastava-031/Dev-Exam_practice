@@ -27,24 +27,22 @@ def _load_dotenv(path: Path) -> None:
 
 _load_dotenv(BACKEND_DIR / ".env")
 
-# On Vercel (or with USE_BUNDLE=1) the app runs from the pre-built artefacts that
-# deploy/fetch_artifacts.py downloads from the GitHub Release: the question bank,
-# vector index and pre-trained models, read-only. The database is copied to the
-# writable temp dir at startup, and the learner's progress is kept in Turso.
+# On Vercel (or with USE_BUNDLE=1) the app runs from the pre-built artefacts in the
+# GitHub Release: at cold start app/artifacts.py streams the question bank, vector
+# index and pre-trained models into a writable temp directory (the function bundle
+# itself is capped at 225 MB), and the learner's progress is kept in Turso.
 ON_VERCEL = bool(os.environ.get("VERCEL"))
-BUNDLE_DIR = BACKEND_DIR / "deploy_data"
 USE_BUNDLE = ON_VERCEL or os.environ.get("USE_BUNDLE") == "1"
+BUNDLE_DIR = Path(os.environ.get("BUNDLE_DIR", Path(tempfile.gettempdir()) / "ssc-data"))
 
 if USE_BUNDLE:
-    os.environ.setdefault("HF_HOME", str(Path(tempfile.gettempdir()) / "hf"))  # bundle is read-only
-    DB_PATH = Path(os.environ.get("EXAM_DB", Path(tempfile.gettempdir()) / "exam.db"))
+    os.environ.setdefault("HF_HOME", str(Path(tempfile.gettempdir()) / "hf"))
     DATA_DIR = Path(os.environ.get("DATA_DIR", BUNDLE_DIR))
-    SEED_DB: Path | None = BUNDLE_DIR / "exam.db"
+    DB_PATH = Path(os.environ.get("EXAM_DB", DATA_DIR / "exam.db"))
     EMBED_MODEL = os.environ.get("EMBED_MODEL", str(DATA_DIR / "models" / "potion-retrieval-32M"))
 else:
     DB_PATH = Path(os.environ.get("EXAM_DB", BACKEND_DIR / "exam.db"))
     DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT_DIR / "data"))
-    SEED_DB = None
     EMBED_MODEL = os.environ.get("EMBED_MODEL", "minishlab/potion-retrieval-32M")
 
 DATASET_DIR = Path(os.environ.get("DATASET_DIR", DATA_DIR / "source"))
