@@ -148,3 +148,25 @@ def test_papers_have_readable_slugs_usable_everywhere(client):
     # Slugs carry the exam, date and shift (clashes on the same day and shift get -2, -3).
     mts = {p["id"]: p["slug"] for p in client.get("/api/papers", params={"exam": "SSC-MTS"}).json()}
     assert mts == {"M1": "ssc-mts-2019-08-02-shift-1", "M2": "ssc-mts-2024-10-15-shift-1"}
+
+
+def test_browser_errors_are_kept_newest_first_and_trimmed(client):
+    assert client.get("/api/client-errors").json() == []
+    for i in range(32):
+        res = client.post("/api/client-errors", json={"message": f"TypeError: boom {i}", "url": "/mocks", "stack": "x" * 5000})
+        assert res.status_code == 204
+    kept = client.get("/api/client-errors").json()
+    assert len(kept) == 30
+    assert kept[0]["message"] == "TypeError: boom 31" and kept[-1]["message"] == "TypeError: boom 2"
+    assert len(kept[0]["stack"]) == 2000 and kept[0]["url"] == "/mocks" and kept[0]["at"]
+
+
+def test_missing_build_files_are_404_not_the_page(client, tmp_path, monkeypatch):
+    from app import config
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<!doctype html><div id=root></div>")
+    (tmp_path / "assets" / "index-new.js").write_text("console.log(1)")
+    monkeypatch.setattr(config, "FRONTEND_DIST", tmp_path)
+    assert client.get("/assets/index-new.js").status_code == 200
+    assert client.get("/assets/index-old.js").status_code == 404
+    assert "root" in client.get("/mocks/ssc-cgl").text

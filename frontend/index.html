@@ -6,9 +6,33 @@
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232453b8'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11.5' stroke='white' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
     <title>SSC Exam Practice</title>
+    <script>
+      // If the app's script or stylesheet fails to load (an interrupted download, or a file from an
+      // older deployment), report it and reload once instead of leaving a blank page.
+      window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (!t || (t.tagName !== 'SCRIPT' && t.tagName !== 'LINK')) return;
+        try {
+          fetch('/api/client-errors', {
+            method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: 'failed to load ' + (t.src || t.href), url: location.pathname, ua: navigator.userAgent }),
+          }).catch(function () {});
+          if (!sessionStorage.getItem('reloaded-after-load-error')) {
+            sessionStorage.setItem('reloaded-after-load-error', '1');
+            location.reload();
+          }
+        } catch (_) {}
+      }, true);
+    </script>
+    <style>
+      /* Shown only if the app has not drawn itself after a few seconds. */
+      .boot { font: 15px/1.5 system-ui, sans-serif; text-align: center; margin-top: 30vh; opacity: 0; animation: boot-in 0.3s 4s forwards; }
+      .boot a { color: #4d7ee8; }
+      @keyframes boot-in { to { opacity: 0.8; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><p class="boot">Still loading… <a href="">Reload the page</a> if this stays.</p></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
