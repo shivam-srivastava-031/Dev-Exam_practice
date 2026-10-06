@@ -45,7 +45,7 @@ export default function Mocks() {
   }
 
   useEffect(() => {
-    if (exam && stage) setPageTitle(`${exam.name} ${stage.name} mock tests`);
+    setPageTitle(exam && stage ? `${exam.name} ${stage.name} mock tests` : 'Mock tests');
   }, [exam, stage]);
 
   if (metaError) return <p className="error-text">{metaError}</p>;

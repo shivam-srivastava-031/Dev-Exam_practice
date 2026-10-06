@@ -137,7 +137,10 @@ export default function ExamRoom() {
       </div>
     );
   }
-  if (!mock) return <div className="exam-message">Loading question paper…</div>;
+  if (!mock) {
+    setPageTitle('Mock test');
+    return <div className="exam-message">Loading question paper…</div>;
+  }
   setPageTitle(mock.title);
   return <ExamSession mock={mock} />;
 }

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, streamText, useMeta } from '../api';
 import { Markup } from '../components/Markup';
 import { fmtNum, fmtPct } from '../lib/format';
-import { examCode, examSlug, practiceUrl, questionUrl, setPageTitle, similarUrl, subjectCode, subjectSlug } from '../lib/urls';
+import { SUBJECT_NAMES, examCode, examSlug, practiceUrl, questionUrl, setPageTitle, similarUrl, subjectCode, subjectSlug } from '../lib/urls';
 import type { SearchResponse } from '../types';
 
 const EXAMPLES = ['who built the Red Fort', 'boat upstream downstream', 'successive discounts shortcut',
@@ -21,13 +21,21 @@ export default function Search() {
   const q = params.get('q') ?? '';
   // Slugs in the URL (?exam=ssc-cgl&subject=quant), codes for the API.
   const exam = examCode(params.get('exam')) ?? '';
-  const subject = subjectCode(params.get('subject') ?? undefined) ?? '';
+  const rawSubject = params.get('subject') ?? '';
+  const subject = subjectCode(rawSubject) ?? (SUBJECT_NAMES[rawSubject.toUpperCase()] ? rawSubject.toUpperCase() : '');
   const [draft, setDraft] = useState(q);
   const [res, setRes] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setDraft(q), [q]);
+  // Older links carried codes (?exam=SSC-CGL&subject=MATH): settle on the slug form.
+  useEffect(() => {
+    const next = new URLSearchParams(params);
+    if (exam && params.get('exam') !== examSlug(exam)) next.set('exam', examSlug(exam));
+    if (subject && params.get('subject') !== subjectSlug(subject)) next.set('subject', subjectSlug(subject));
+    if (next.toString() !== params.toString()) setParams(next, { replace: true });
+  }, [exam, subject]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => setPageTitle(q ? `Search: ${q.length > 60 ? `${q.slice(0, 57)}…` : q}` : 'Search'), [q]);
   useEffect(() => {
     if (q.trim().length < 2) {

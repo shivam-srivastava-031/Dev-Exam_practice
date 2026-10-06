@@ -6,8 +6,8 @@ import { Markup } from '../components/Markup';
 import { OptionList } from '../components/OptionList';
 import { fmtNum, fmtPct } from '../lib/format';
 import {
-  SHOW_TO_STATUS, examCode, practiceUrl, questionUrl, searchUrl, setPageTitle, similarUrl, subjectCode,
-  type PracticeTarget,
+  EXAM_NAMES, SHOW_TO_STATUS, SUBJECT_NAMES, examCode, practiceUrl, questionUrl, roughLabel, searchUrl, setPageTitle,
+  similarUrl, subjectCode, type PracticeTarget,
 } from '../lib/urls';
 import type { AnswerResult, PracticeQuestion } from '../types';
 
@@ -183,9 +183,11 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [q, choose, go]);
 
-  const subjectName = (code?: string) => meta?.subjects.find((s) => s.code === code)?.name ?? code;
-  const chapterName = meta?.chapters.find((c) => c.subject === target.subject && c.chapter === target.chapter)?.label;
-  const examName = meta?.exams.find((e) => e.code === target.exam)?.name;
+  const subjectName = (code?: string) => (code ? SUBJECT_NAMES[code] ?? code : undefined);
+  const chapterName = target.chapter
+    ? meta?.chapters.find((c) => c.subject === target.subject && c.chapter === target.chapter)?.label ?? roughLabel(target.chapter)
+    : undefined;
+  const examName = target.exam ? EXAM_NAMES[target.exam] : undefined;
 
   useEffect(() => {
     const titles: Record<PracticeMode, string | undefined> = {
@@ -223,7 +225,13 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
   const session = Object.values(answers).filter((a) => a.chosen !== null);
   const correct = session.filter((a) => a.result.is_correct).length;
   const exam = meta?.exams.find((e) => e.code === target.exam);
-  const chapters = meta?.chapters.filter((c) => c.subject === target.subject) ?? [];
+  // Until the catalogue arrives, the options are the static lists plus whatever the URL selected.
+  const chapters = meta?.chapters.filter((c) => c.subject === target.subject)
+    ?? (target.chapter ? [{ chapter: target.chapter, label: roughLabel(target.chapter), n: 0, subject: target.subject ?? '' }] : []);
+  const examOptions = meta?.exams.map((e) => [e.code, e.name] as [string, string]) ?? Object.entries(EXAM_NAMES);
+  const subjectOptions = meta?.subjects.filter((s) => s.count).map((s) => [s.code, s.name] as [string, string])
+    ?? Object.entries(SUBJECT_NAMES);
+  const years = meta?.years.map(String) ?? (target.year ? [target.year] : []);
   const aiOnly = mode === 'ai' || (items.length > 0 && items.every((it) => it.origin === 'ai'));
   const showFilters = mode === 'filter' && !target.about;
   const single = mode === 'question';
@@ -248,18 +256,18 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
       ) : (
         <div className="card filters">
           <Select label="Exam" value={target.exam} onChange={(v) => setFilter({ exam: v || undefined })}
-            options={[['', 'All exams'], ...(meta?.exams.map((e) => [e.code, e.name] as [string, string]) ?? [])]} />
+            options={[['', 'All exams'], ...examOptions]} />
           {exam && exam.stages.length > 1 && (
             <Select label="Stage" value={target.stage} onChange={(v) => setFilter({ stage: v || undefined })}
               options={[['', 'All stages'], ...exam.stages.map((s) => [s.code, s.name] as [string, string])]} />
           )}
           <Select label="Subject" value={target.subject} onChange={(v) => setFilter({ subject: v || undefined })}
-            options={[['', 'All subjects'], ...(meta?.subjects.filter((s) => s.count).map((s) => [s.code, s.name] as [string, string]) ?? [])]} />
+            options={[['', 'All subjects'], ...subjectOptions]} />
           <Select label="Topic" value={target.chapter} onChange={(v) => setFilter({ chapter: v || undefined })} disabled={!target.subject}
             options={[['', target.subject ? 'All topics' : 'Pick a subject first'],
-              ...chapters.map((c) => [c.chapter, `${c.label} (${fmtNum(c.n)})`] as [string, string])]} />
+              ...chapters.map((c) => [c.chapter, c.n ? `${c.label} (${fmtNum(c.n)})` : c.label] as [string, string])]} />
           <Select label="Year" value={target.year} onChange={(v) => setFilter({ year: v || undefined })}
-            options={[['', 'Any year'], ...(meta?.years.map((y) => [String(y), String(y)] as [string, string]) ?? [])]} />
+            options={[['', 'Any year'], ...years.map((y) => [y, y] as [string, string])]} />
           <Select label="Show" value={target.status} onChange={(v) => setFilter({ status: v || undefined })}
             options={[['', 'All questions'], ['unattempted', 'Not attempted yet'], ['incorrect', 'Got wrong last time'], ['bookmarked', 'Bookmarked']]} />
           <Select label="Order" value={target.order} onChange={(v) => setFilter({ order: v || undefined })}
