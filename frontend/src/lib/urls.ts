@@ -21,7 +21,20 @@ const SUBJECT_CODES = Object.fromEntries(Object.entries(SUBJECT_SLUGS).map(([cod
 export const SHOW_TO_STATUS: Record<string, string> = { new: 'unattempted', wrong: 'incorrect', saved: 'bookmarked' };
 const STATUS_TO_SHOW = Object.fromEntries(Object.entries(SHOW_TO_STATUS).map(([show, status]) => [status, show]));
 
-export const EXAM_CODES = ['SSC-CGL', 'SSC-CHSL', 'SSC-CPO', 'SSC-GD', 'SSC-MTS', 'SSC-Selection-Post', 'SSC-Stenographer'];
+// Names the UI can show before the catalogue (/api/meta) arrives, so the first paint
+// of a deep link already has the right filters and tab title.
+export const EXAM_NAMES: Record<string, string> = {
+  'SSC-CGL': 'SSC CGL', 'SSC-CHSL': 'SSC CHSL', 'SSC-CPO': 'SSC CPO', 'SSC-GD': 'SSC GD Constable',
+  'SSC-MTS': 'SSC MTS', 'SSC-Selection-Post': 'SSC Selection Post', 'SSC-Stenographer': 'SSC Stenographer',
+};
+export const SUBJECT_NAMES: Record<string, string> = {
+  REAS: 'General Intelligence & Reasoning', GK: 'General Awareness', MATH: 'Quantitative Aptitude',
+  ENG: 'English Language & Comprehension', COMPUTER: 'Computer Knowledge',
+};
+export const EXAM_CODES = Object.keys(EXAM_NAMES);
+
+/** 'profit-and-loss' -> 'Profit And Loss' until the catalogue's own label is available. */
+export const roughLabel = (slug: string) => slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
 export const examSlug = (code: string) => code.toLowerCase();
 export const subjectCode = (slug: string | undefined) => (slug ? SUBJECT_CODES[slug.toLowerCase()] : undefined);
