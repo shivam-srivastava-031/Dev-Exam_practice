@@ -42,6 +42,23 @@ the importer clones it for you.
 - **Results**: score with negative marking, section breakdown, time per question, full review, AI tutor, AI coach plan.
 - **Progress**: accuracy by subject, weakest topics, score trend, daily activity. **AI Lab** (`/lab`) shows every model's status and metrics.
 
+## Page URLs
+
+Every page and state has a readable, shareable URL. Refresh, Back and Forward keep you on the same question, and older links redirect.
+
+| URL | Page |
+|---|---|
+| `/practice`, `/practice/quant`, `/practice/quant/profit-and-loss` | practice: everything, a subject, a topic |
+| `…?exam=ssc-cgl&stage=mains&year=2023&show=wrong&order=in-order&q=17264` | filters, plus the question on screen |
+| `/practice/smart`, `/practice/ai` | smart practice, AI-generated questions |
+| `/practice/paper/ssc-cgl-2023-07-18-shift-4` | one previous-year paper, untimed |
+| `/question/17264`, `/practice/similar/17264` | one question, and questions like it |
+| `/mocks/ssc-cgl`, `/mocks/ssc-cgl/mains` | mock tests for an exam and stage |
+| `/mock/<id>`, `/mock/<id>/result` | exam room and result |
+| `/search?q=red+fort`, `/coach`, `/progress`, `/ai-lab` | search, coach, progress, AI Lab |
+
+Subjects use the slugs `reasoning`, `gk`, `quant`, `english` and `computer`. All URLs are built in `frontend/src/lib/urls.ts`.
+
 ## Exam patterns used
 
 | Exam | Stage | Layout | Marking |

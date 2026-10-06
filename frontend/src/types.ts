@@ -143,6 +143,7 @@ export interface Paper {
   duration_min: number | null;
   question_count: number;
   max_marks: number;
+  slug: string;
   last_mock: { id: string; submitted_at: string | null; score: number | null; max_score: number | null } | null;
 }
 

@@ -4,11 +4,13 @@ import { api, useAsync } from '../api';
 import { RatioBars } from '../components/charts';
 import { Markup } from '../components/Markup';
 import { SUBJECT_SHORT, fmtNum, fmtPct } from '../lib/format';
+import { aiPracticeUrl, questionUrl, setPageTitle } from '../lib/urls';
 import type { LabStatus, PracticeQuestion, TopicGuess } from '../types';
 import { Tile } from './Dashboard';
 
 export default function Lab() {
   const lab = useAsync(() => api.lab(), []);
+  setPageTitle('AI Lab');
   if (lab.error) return <p className="error-text">{lab.error}</p>;
   if (!lab.data) return <p className="muted">Loading…</p>;
   const d = lab.data;
@@ -122,7 +124,7 @@ function TopicCard({ d }: { d: LabStatus }) {
               <RatioBars rows={out.predictions.map((p) => ({ key: p.chapter, label: p.label, fullLabel: `${p.subject} · ${p.label}`,
                 value: p.probability, detail: 'model probability' }))} />
               {out.similar[0] && (
-                <p className="small muted">Closest PYQ: <Link to={`/practice?ids=${out.similar[0].id}`}>{out.similar[0].paper_title}</Link></p>
+                <p className="small muted">Closest PYQ: <Link to={questionUrl(out.similar[0].id)}>{out.similar[0].paper_title}</Link></p>
               )}
             </div>
           )}
@@ -184,7 +186,7 @@ function LlmCard({ d, onExported }: { d: LabStatus; onExported: () => void }) {
         Gemini ({d.gemini.models.join(' → ')}, tried in order) writes tutor explanations, grounded answers in Search, mock
         coaching, and new practice questions. Generated questions are kept only when an independent solve agrees with the
         answer key. {fmtNum(d.ai_questions)} verified AI question{d.ai_questions === 1 ? '' : 's'} so far
-        {d.ai_questions > 0 && <> · <Link to="/practice?origin=ai">practise them</Link></>}.
+        {d.ai_questions > 0 && <> · <Link to={aiPracticeUrl()}>practise them</Link></>}.
       </p>
       <div className="notice-inline small">
         <strong>About fine-tuning:</strong> this API key cannot tune Gemini models (Google's tuning endpoint returns

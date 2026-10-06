@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { api, useAsync } from '../api';
 import { DailyColumns, RatioBars, TrendLine } from '../components/charts';
 import { SUBJECT_SHORT, fmtDateTime, fmtNum, fmtPct, fmtScore, parseUtc } from '../lib/format';
+import { mocksUrl, practiceUrl, resultUrl, setPageTitle } from '../lib/urls';
 import { Tile } from './Dashboard';
 
 function lastNDays(n: number): string[] {
@@ -16,6 +17,7 @@ function lastNDays(n: number): string[] {
 
 export default function Analytics() {
   const stats = useAsync(() => api.stats(), []);
+  setPageTitle('Your progress');
   if (stats.error) return <p className="error-text">{stats.error}</p>;
   if (!stats.data) return <p className="muted">Loading…</p>;
   const { totals, subjects, weak_chapters, activity, mocks } = stats.data;
@@ -26,8 +28,8 @@ export default function Analytics() {
         <h1 className="h2">No progress yet</h1>
         <p className="muted">Answer a few questions or take a mock test, and your accuracy, weak topics and score trend will appear here.</p>
         <div className="row gap center">
-          <Link className="btn btn-primary" to="/practice">Start practising</Link>
-          <Link className="btn" to="/mocks">Take a mock</Link>
+          <Link className="btn btn-primary" to={practiceUrl()}>Start practising</Link>
+          <Link className="btn" to={mocksUrl()}>Take a mock</Link>
         </div>
       </div>
     );
@@ -98,7 +100,7 @@ export default function Analytics() {
                   <td className="muted">{w.subject_name}</td>
                   <td className="num">{fmtPct(w.correct / w.attempts)}</td>
                   <td className="num">{w.attempts}</td>
-                  <td className="num"><Link to={`/practice?subject=${w.subject}&chapter=${w.chapter}&status=unattempted`}>Practise →</Link></td>
+                  <td className="num"><Link to={practiceUrl({ subject: w.subject, chapter: w.chapter, status: 'unattempted' })}>Practise →</Link></td>
                 </tr>
               ))}
             </tbody>
@@ -114,7 +116,7 @@ export default function Analytics() {
             <tbody>
               {[...mocks].sort((a, b) => +parseUtc(b.submitted_at) - +parseUtc(a.submitted_at)).map((m) => (
                 <tr key={m.id}>
-                  <td><Link to={`/result/${m.id}`}>{m.title}</Link></td>
+                  <td><Link to={resultUrl(m.id)}>{m.title}</Link></td>
                   <td className="muted">{fmtDateTime(m.submitted_at)}</td>
                   <td className="num">{fmtScore(m.score)} / {fmtScore(m.max_score)}</td>
                   <td className="num">{fmtPct(m.max_score ? m.score / m.max_score : 0)}</td>

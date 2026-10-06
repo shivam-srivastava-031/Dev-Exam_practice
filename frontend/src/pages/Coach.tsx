@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, useAsync, useMeta } from '../api';
 import { CalibrationPlot } from '../components/charts';
 import { fmtDateTime, fmtNum, fmtPct, fmtScore } from '../lib/format';
+import { aiPracticeUrl, mockUrl, practiceUrl, setPageTitle, smartUrl } from '../lib/urls';
 import type { LearnerOverview, MasteryRow } from '../types';
 import { Tile } from './Dashboard';
 
@@ -13,6 +14,7 @@ export default function Coach() {
   const overview = useAsync(() => api.learner(), []);
   const [data, setData] = useState<LearnerOverview | null>(null);
   const ov = data ?? overview.data;
+  setPageTitle('Your coach');
 
   if (overview.error) return <p className="error-text">{overview.error}</p>;
   if (!ov || !meta) return <p className="muted">Loading your learner model…</p>;
@@ -105,7 +107,7 @@ function NextSteps({ ov, aiEnabled }: { ov: LearnerOverview; aiEnabled: boolean 
     setBusy('mock');
     try {
       const { id } = await api.createMock({ pattern_id: ov.target.pattern_id, adaptive: true });
-      navigate(`/exam/${id}`);
+      navigate(mockUrl(id));
     } catch (e) {
       setMessage((e as Error).message);
       setBusy(null);
@@ -118,7 +120,7 @@ function NextSteps({ ov, aiEnabled }: { ov: LearnerOverview; aiEnabled: boolean 
     setMessage(null);
     try {
       const rep = await api.generate({ exam: ov.target.exam, stage: ov.target.stage, subject: focus.subject, chapter: focus.chapter, count: 5 });
-      if (rep.ids.length) navigate(`/practice?ids=${rep.ids.join(',')}`);
+      if (rep.ids.length) navigate(aiPracticeUrl(rep.ids));
       else setMessage(`None of the ${rep.generated} drafts passed verification; try again.`);
     } catch (e) {
       setMessage((e as Error).message);
@@ -130,7 +132,7 @@ function NextSteps({ ov, aiEnabled }: { ov: LearnerOverview; aiEnabled: boolean 
   return (
     <section className="card stack">
       <h2 className="h3">What to do next</h2>
-      <Link className="step" to="/practice?mode=smart">
+      <Link className="step" to={smartUrl()}>
         <strong>Smart practice</strong>
         <span className="muted small">
           {ov.reviews_due ? `${ov.reviews_due} review${ov.reviews_due > 1 ? 's' : ''} due, then ` : ''}
@@ -193,7 +195,7 @@ function MasteryMap({ rows, examName }: { rows: MasteryRow[]; examName: string }
                 </td>
                 <td className="num">{fmtPct(r.share, 1)}</td>
                 <td className="num">{r.attempts ? `${r.correct}/${r.attempts}` : '–'}</td>
-                <td className="num"><Link to={`/practice?subject=${r.subject}&chapter=${r.chapter}&status=unattempted`}>Practise →</Link></td>
+                <td className="num"><Link to={practiceUrl({ subject: r.subject, chapter: r.chapter, status: 'unattempted' })}>Practise →</Link></td>
               </tr>
             ))}
           </tbody>
@@ -260,7 +262,7 @@ function ModelCard({ ov, onRetrained }: { ov: LearnerOverview; onRetrained: () =
           ({tr.baseline_logloss}). It retunes itself every 100 answers.
         </p>
       )}
-      <p className="muted small">Details of every model: <Link to="/lab">AI Lab →</Link></p>
+      <p className="muted small">Details of every model: <Link to="/ai-lab">AI Lab →</Link></p>
     </section>
   );
 }

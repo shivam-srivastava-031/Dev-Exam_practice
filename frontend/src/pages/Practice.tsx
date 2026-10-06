@@ -1,37 +1,64 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, useMeta, type QuestionFilters } from '../api';
 import { AiTutor } from '../components/AiTutor';
 import { Markup } from '../components/Markup';
 import { OptionList } from '../components/OptionList';
 import { fmtNum, fmtPct } from '../lib/format';
+import {
+  SHOW_TO_STATUS, examCode, practiceUrl, questionUrl, searchUrl, setPageTitle, similarUrl, subjectCode,
+  type PracticeTarget,
+} from '../lib/urls';
 import type { AnswerResult, PracticeQuestion } from '../types';
 
-const FILTER_KEYS = ['exam', 'stage', 'subject', 'chapter', 'year', 'status', 'order', 'search', 'paper',
-  'origin', 'semantic', 'similar', 'ids'] as const;
 const PAGE = 20;
+
+/** Where the questions come from; each mode has its own URL (see lib/urls.ts). */
+export type PracticeMode = 'filter' | 'smart' | 'ai' | 'paper' | 'similar' | 'question';
 
 interface Answered {
   chosen: number | null;
   result: AnswerResult;
 }
 
-export default function Practice() {
+// Query keys from before URLs were cleaned up: /practice?subject=MATH&status=incorrect...
+const LEGACY_KEYS = ['subject', 'chapter', 'status', 'mode', 'paper', 'similar', 'semantic', 'origin'];
+
+export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
   const { meta } = useMeta();
-  const [params, setParams] = useSearchParams();
-  const filters = useMemo(() => {
-    const f: QuestionFilters = {};
-    for (const k of FILTER_KEYS) {
-      const v = params.get(k);
-      if (v) f[k] = v;
+  const navigate = useNavigate();
+  const params = useParams();
+  const [query] = useSearchParams();
+
+  // What the URL asks for, as the page's own filter object.
+  const target: PracticeTarget = useMemo(() => ({
+    subject: subjectCode(params.subject),
+    chapter: params.chapter,
+    exam: examCode(query.get('exam')),
+    stage: query.get('stage') ?? undefined,
+    year: query.get('year') ?? undefined,
+    status: SHOW_TO_STATUS[query.get('show') ?? ''],
+    order: query.get('order') === 'in-order' ? 'sequential' : undefined,
+    search: query.get('search') ?? undefined,
+    about: query.get('about') ?? undefined,
+  }), [params.subject, params.chapter, query]);
+
+  // ...and what the API is asked for.
+  const filters: QuestionFilters = useMemo(() => {
+    switch (mode) {
+      case 'paper': return { paper: params.paper, order: 'paper' };
+      case 'similar': return { similar: params.id };
+      case 'question': return { ids: params.id };
+      case 'ai': return query.get('ids') ? { ids: query.get('ids')! } : { origin: 'ai', order: 'sequential' };
+      case 'smart': return { subject: target.subject };
+      default: return {
+        exam: target.exam, stage: target.stage, subject: target.subject, chapter: target.chapter, year: target.year,
+        status: target.status, order: target.order, search: target.search, semantic: target.about,
+      };
     }
-    if (f.paper) f.order = 'paper';
-    return f;
-  }, [params]);
-  const smart = params.get('mode') === 'smart';
-  const filterKey = JSON.stringify(filters) + (smart ? ':smart' : '');
-  // Modes that come from elsewhere in the app replace the filter bar with a banner.
-  const special = smart || !!(filters.paper || filters.semantic || filters.similar || filters.ids || filters.origin === 'ai');
+  }, [mode, params.paper, params.id, query, target]);
+  const filterKey = mode + JSON.stringify(filters);
+  const currentId = Number(query.get('q')) || null;
 
   const [items, setItems] = useState<PracticeQuestion[]>([]);
   const [total, setTotal] = useState(0);
@@ -41,7 +68,7 @@ export default function Practice() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tutorFor, setTutorFor] = useState<number | null>(null);
-  const [searchDraft, setSearchDraft] = useState(filters.search ?? '');
+  const [searchDraft, setSearchDraft] = useState(target.search ?? '');
   const seed = useMemo(() => Math.floor(Math.random() * 2 ** 31), [filterKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const loadingMore = useRef(false);
   const shownAt = useRef(Date.now());
@@ -49,12 +76,19 @@ export default function Practice() {
   // Smart practice asks the adaptive engine for the next batch each time, so later
   // batches already reflect what the learner model learned from this session.
   const load = useCallback(async (after: number | null, loaded: PracticeQuestion[]) => {
-    if (smart) {
+    if (mode === 'smart') {
       const r = await api.smart(10, filters.subject, loaded.map((it) => it.id));
       return { total: 0, items: r.items, next_after: r.items.length ? 1 : null };
     }
     return api.questions({ ...filters, seed, after, limit: PAGE });
   }, [filterKey, seed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Show question `id` and record it in the URL (a history entry, so Back returns to the previous one). */
+  const showQuestion = useCallback((id: number, replace = false) => {
+    const next = new URLSearchParams(query);
+    next.set('q', String(id));
+    navigate({ search: next.toString() }, { replace });
+  }, [query, navigate]);
 
   useEffect(() => {
     let alive = true;
@@ -64,13 +98,18 @@ export default function Practice() {
     setIdx(0);
     setAnswers({});
     setTutorFor(null);
-    load(null, []).then(
-      (page) => {
+    // A ?q= in the URL (a refresh or a shared link) puts that question first.
+    const pinned = currentId && mode !== 'question' ? api.questions({ ids: String(currentId) }) : Promise.resolve(null);
+    Promise.all([pinned, load(null, [])]).then(
+      ([pin, page]) => {
         if (!alive) return;
-        setItems(page.items);
+        const first = pin?.items[0];
+        const list = first ? [first, ...page.items.filter((it) => it.id !== first.id)] : page.items;
+        setItems(list);
         setTotal(page.total);
         setNextAfter(page.next_after);
         setLoading(false);
+        if (list[0] && list[0].id !== currentId && mode !== 'question') showQuestion(list[0].id, true);
       },
       (e: Error) => alive && (setError(e.message), setLoading(false)),
     );
@@ -78,6 +117,22 @@ export default function Practice() {
       alive = false;
     };
   }, [filterKey, seed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Back / Forward (or an edited ?q=) moves within the loaded session.
+  useEffect(() => {
+    if (!currentId || !items.length) return;
+    const at = items.findIndex((it) => it.id === currentId);
+    if (at >= 0 && at !== idx) {
+      setIdx(at);
+      setTutorFor(null);
+    } else if (at < 0) {
+      void api.questions({ ids: String(currentId) }).then((page) => {
+        if (!page.items[0]) return;
+        setItems((list) => [...list.slice(0, idx + 1), page.items[0], ...list.slice(idx + 1)]);
+        setIdx(idx + 1);
+      });
+    }
+  }, [currentId, items]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep a few questions buffered ahead of the learner.
   useEffect(() => {
@@ -112,9 +167,9 @@ export default function Practice() {
   }, [q, answers]);
 
   const go = useCallback((delta: number) => {
-    setIdx((i) => Math.max(0, Math.min(items.length - 1, i + delta)));
-    setTutorFor(null);
-  }, [items.length]);
+    const next = items[Math.max(0, Math.min(items.length - 1, idx + delta))];
+    if (next && next.id !== q?.id) showQuestion(next.id);
+  }, [items, idx, q, showQuestion]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -128,13 +183,35 @@ export default function Practice() {
     return () => window.removeEventListener('keydown', onKey);
   }, [q, choose, go]);
 
-  function setFilter(key: (typeof FILTER_KEYS)[number], value: string) {
-    const next = new URLSearchParams(params);
-    if (value) next.set(key, value);
-    else next.delete(key);
-    if (key === 'subject') next.delete('chapter');
-    if (key === 'exam') next.delete('stage');
-    setParams(next, { replace: true });
+  const subjectName = (code?: string) => meta?.subjects.find((s) => s.code === code)?.name ?? code;
+  const chapterName = meta?.chapters.find((c) => c.subject === target.subject && c.chapter === target.chapter)?.label;
+  const examName = meta?.exams.find((e) => e.code === target.exam)?.name;
+
+  useEffect(() => {
+    const titles: Record<PracticeMode, string | undefined> = {
+      filter: [chapterName, target.subject ? `${subjectName(target.subject)} practice` : 'Practice', examName]
+        .filter(Boolean).join(' · '),
+      smart: 'Smart practice',
+      ai: 'AI-generated questions',
+      paper: q ? `${q.paper_title} (untimed)` : 'Previous-year paper',
+      similar: 'Similar questions',
+      question: q ? `${subjectName(q.subject)} question #${q.id}` : `Question #${params.id}`,
+    };
+    setPageTitle(titles[mode]);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Old /practice?subject=MATH&mode=smart... links land on their clean URL.
+  const legacy = mode === 'filter' && LEGACY_KEYS.some((k) => query.has(k));
+  if (legacy) return <Navigate replace to={legacyTarget(query)} />;
+  if (params.subject && !target.subject) {
+    return <div className="card empty"><h1 className="h2">No such subject</h1><Link to={practiceUrl()}>All questions</Link></div>;
+  }
+
+  function setFilter(changes: Partial<PracticeTarget>) {
+    const next = { ...target, ...changes };
+    if ('subject' in changes) next.chapter = undefined;
+    if ('exam' in changes) next.stage = undefined;
+    navigate(practiceUrl(next));
   }
 
   async function toggleBookmark() {
@@ -145,72 +222,77 @@ export default function Practice() {
 
   const session = Object.values(answers).filter((a) => a.chosen !== null);
   const correct = session.filter((a) => a.result.is_correct).length;
-  const exam = meta?.exams.find((e) => e.code === filters.exam);
-  const chapters = meta?.chapters.filter((c) => c.subject === filters.subject) ?? [];
+  const exam = meta?.exams.find((e) => e.code === target.exam);
+  const chapters = meta?.chapters.filter((c) => c.subject === target.subject) ?? [];
+  const aiOnly = mode === 'ai' || (items.length > 0 && items.every((it) => it.origin === 'ai'));
+  const showFilters = mode === 'filter' && !target.about;
+  const single = mode === 'question';
 
   return (
     <div className="practice">
-      {special ? (
+      {!showFilters ? (
         <div className="card notice row between gap">
           <span>
-            {smart ? <>Smart practice: questions picked for you by the adaptive engine. Each one says why,
+            {mode === 'smart' ? <>Smart practice: questions picked for you by the adaptive engine. Each one says why,
               and every answer updates your learner model. <Link to="/coach">How it decides →</Link></>
-              : filters.paper ? <>Practising one previous-year paper, untimed{q ? <>: <strong>{q.paper_title}</strong></> : null}</>
-                : filters.semantic ? <>Questions matching “<strong>{filters.semantic}</strong>” (<Link to={`/search?q=${encodeURIComponent(filters.semantic)}`}>back to search</Link>)</>
-                  : filters.similar ? <>Questions most similar in meaning to the one you were on</>
-                    : filters.origin === 'ai' || (items.length > 0 && items.every((it) => it.origin === 'ai'))
-                      ? <>AI-generated questions: written by Gemini in the style of real PYQs and kept only
-                      when an independent solve agreed with the answer. They are not from real papers.</>
-                      : <>Selected questions</>}
+              : mode === 'paper' ? <>Practising one previous-year paper, untimed{q ? <>: <strong>{q.paper_title}</strong></> : null}</>
+                : target.about ? <>Questions matching “<strong>{target.about}</strong>” (<Link to={searchUrl(target.about)}>back to search</Link>)</>
+                  : mode === 'similar' ? <>Questions most similar in meaning to <Link to={questionUrl(Number(params.id))}>question #{params.id}</Link></>
+                    : single ? <>Question #{params.id}{q?.chapter && <> · <Link to={practiceUrl({ subject: q.subject, chapter: q.chapter })}>more {q.chapter_label}</Link></>}</>
+                      : aiOnly ? <>AI-generated questions: written by Gemini in the style of real PYQs and kept only
+                        when an independent solve agreed with the answer. They are not from real papers.</>
+                        : <>Selected questions</>}
           </span>
-          <Link className="btn btn-sm" to="/practice">All questions</Link>
+          <Link className="btn btn-sm" to={practiceUrl()}>All questions</Link>
         </div>
       ) : (
         <div className="card filters">
-          <Select label="Exam" value={filters.exam} onChange={(v) => setFilter('exam', v)}
+          <Select label="Exam" value={target.exam} onChange={(v) => setFilter({ exam: v || undefined })}
             options={[['', 'All exams'], ...(meta?.exams.map((e) => [e.code, e.name] as [string, string]) ?? [])]} />
           {exam && exam.stages.length > 1 && (
-            <Select label="Stage" value={filters.stage} onChange={(v) => setFilter('stage', v)}
+            <Select label="Stage" value={target.stage} onChange={(v) => setFilter({ stage: v || undefined })}
               options={[['', 'All stages'], ...exam.stages.map((s) => [s.code, s.name] as [string, string])]} />
           )}
-          <Select label="Subject" value={filters.subject} onChange={(v) => setFilter('subject', v)}
+          <Select label="Subject" value={target.subject} onChange={(v) => setFilter({ subject: v || undefined })}
             options={[['', 'All subjects'], ...(meta?.subjects.filter((s) => s.count).map((s) => [s.code, s.name] as [string, string]) ?? [])]} />
-          <Select label="Topic" value={filters.chapter} onChange={(v) => setFilter('chapter', v)} disabled={!filters.subject}
-            options={[['', filters.subject ? 'All topics' : 'Pick a subject first'],
+          <Select label="Topic" value={target.chapter} onChange={(v) => setFilter({ chapter: v || undefined })} disabled={!target.subject}
+            options={[['', target.subject ? 'All topics' : 'Pick a subject first'],
               ...chapters.map((c) => [c.chapter, `${c.label} (${fmtNum(c.n)})`] as [string, string])]} />
-          <Select label="Year" value={filters.year} onChange={(v) => setFilter('year', v)}
+          <Select label="Year" value={target.year} onChange={(v) => setFilter({ year: v || undefined })}
             options={[['', 'Any year'], ...(meta?.years.map((y) => [String(y), String(y)] as [string, string]) ?? [])]} />
-          <Select label="Show" value={filters.status} onChange={(v) => setFilter('status', v)}
+          <Select label="Show" value={target.status} onChange={(v) => setFilter({ status: v || undefined })}
             options={[['', 'All questions'], ['unattempted', 'Not attempted yet'], ['incorrect', 'Got wrong last time'], ['bookmarked', 'Bookmarked']]} />
-          <Select label="Order" value={filters.order} onChange={(v) => setFilter('order', v)}
+          <Select label="Order" value={target.order} onChange={(v) => setFilter({ order: v || undefined })}
             options={[['', 'Shuffled'], ['sequential', 'In order']]} />
-          <form className="field field-grow" onSubmit={(e) => { e.preventDefault(); setFilter('search', searchDraft.trim()); }}>
+          <form className="field field-grow" onSubmit={(e) => { e.preventDefault(); setFilter({ search: searchDraft.trim() || undefined }); }}>
             <span className="field-label">Search text</span>
             <input type="search" value={searchDraft} onChange={(e) => setSearchDraft(e.target.value)}
-              onBlur={() => searchDraft.trim() !== (filters.search ?? '') && setFilter('search', searchDraft.trim())}
+              onBlur={() => searchDraft.trim() !== (target.search ?? '') && setFilter({ search: searchDraft.trim() || undefined })}
               placeholder="e.g. Harappa, simple interest" />
           </form>
         </div>
       )}
 
-      <div className="row between wrap session-bar">
-        <span className="muted">
-          {loading ? 'Loading questions…' : smart ? 'Adapts after every answer'
-            : `${fmtNum(total)} matching question${total === 1 ? '' : 's'}`}
-        </span>
-        {session.length > 0 && (
-          <span className="session-tally">
-            This session: <strong>{correct}</strong> / {session.length} correct · {fmtPct(correct / session.length)}
+      {!single && (
+        <div className="row between wrap session-bar">
+          <span className="muted">
+            {loading ? 'Loading questions…' : mode === 'smart' ? 'Adapts after every answer'
+              : `${fmtNum(total)} matching question${total === 1 ? '' : 's'}`}
           </span>
-        )}
-      </div>
+          {session.length > 0 && (
+            <span className="session-tally">
+              This session: <strong>{correct}</strong> / {session.length} correct · {fmtPct(correct / session.length)}
+            </span>
+          )}
+        </div>
+      )}
 
       {error && <p className="error-text">{error}</p>}
 
       {!loading && !q && !error && (
         <div className="card empty">
-          <h2 className="h3">No questions match these filters</h2>
-          <p className="muted">Try a different topic, or switch “Show” back to all questions.</p>
+          <h2 className="h3">{single ? 'Question not found' : 'No questions match these filters'}</h2>
+          <p className="muted">{single ? 'The link may be from an older question bank.' : 'Try a different topic, or switch “Show” back to all questions.'}</p>
         </div>
       )}
 
@@ -218,16 +300,19 @@ export default function Practice() {
         <article className="card question-card">
           <header className="q-head">
             <div className="q-meta">
-              <span className="q-num">Q {idx + 1}{total && !smart ? ` of ${fmtNum(total)}` : ''}</span>
-              <span className="pill">{meta?.subjects.find((s) => s.code === q.subject)?.name ?? q.subject}</span>
-              {q.chapter && <span className="pill pill-soft">{q.chapter_label}</span>}
+              <span className="q-num">{single ? `#${q.id}` : `Q ${idx + 1}${total && mode !== 'smart' ? ` of ${fmtNum(total)}` : ''}`}</span>
+              <Link className="pill" to={practiceUrl({ subject: q.subject })}>{subjectName(q.subject)}</Link>
+              {q.chapter && <Link className="pill pill-soft" to={practiceUrl({ subject: q.subject, chapter: q.chapter })}>{q.chapter_label}</Link>}
               {q.last_correct === false && !answered && <span className="pill pill-bad">Wrong last time</span>}
               {q.origin === 'ai' && <span className="pill pill-ai">AI-generated</span>}
             </div>
-            <button type="button" className={`icon-btn${q.bookmarked ? ' is-on' : ''}`} onClick={() => void toggleBookmark()}
-              aria-pressed={q.bookmarked} title={q.bookmarked ? 'Remove bookmark' : 'Bookmark for revision'}>
-              {q.bookmarked ? '★' : '☆'} <span className="small">{q.bookmarked ? 'Saved' : 'Save'}</span>
-            </button>
+            <div className="row gap">
+              {!single && <Link className="icon-btn" to={questionUrl(q.id)} title="Link to just this question">🔗 <span className="small">Link</span></Link>}
+              <button type="button" className={`icon-btn${q.bookmarked ? ' is-on' : ''}`} onClick={() => void toggleBookmark()}
+                aria-pressed={q.bookmarked} title={q.bookmarked ? 'Remove bookmark' : 'Bookmark for revision'}>
+                {q.bookmarked ? '★' : '☆'} <span className="small">{q.bookmarked ? 'Saved' : 'Save'}</span>
+              </button>
+            </div>
           </header>
           {q.reason && <p className={`reason reason-${q.kind}`}>{q.reason}</p>}
           <p className="q-source muted small">
@@ -271,23 +356,46 @@ export default function Practice() {
                   ✦ Ask the AI tutor about this question
                 </button>
               )}
-              <Link className="btn btn-ghost" to={`/practice?similar=${q.id}`}>Similar questions →</Link>
+              <Link className="btn btn-ghost" to={similarUrl(q.id)}>Similar questions →</Link>
             </div>
           )}
           {tutorFor === q.id && <AiTutor key={q.id} questionId={q.id} chosen={answered?.chosen ?? null} />}
 
-          <footer className="q-actions">
-            <button type="button" className="btn" onClick={() => go(-1)} disabled={idx === 0}>← Previous</button>
-            {!answered && <button type="button" className="btn btn-ghost" onClick={() => void choose(null)}>Show answer</button>}
-            <button type="button" className="btn btn-primary" onClick={() => go(1)} disabled={idx >= items.length - 1}>
-              Next →
-            </button>
-          </footer>
-          <p className="muted small kbd-hint">Keys: <kbd>1</kbd>–<kbd>4</kbd> answer · <kbd>←</kbd> <kbd>→</kbd> move</p>
+          {!single && (
+            <>
+              <footer className="q-actions">
+                <button type="button" className="btn" onClick={() => go(-1)} disabled={idx === 0}>← Previous</button>
+                {!answered && <button type="button" className="btn btn-ghost" onClick={() => void choose(null)}>Show answer</button>}
+                <button type="button" className="btn btn-primary" onClick={() => go(1)} disabled={idx >= items.length - 1}>
+                  Next →
+                </button>
+              </footer>
+              <p className="muted small kbd-hint">Keys: <kbd>1</kbd>–<kbd>4</kbd> answer · <kbd>←</kbd> <kbd>→</kbd> move</p>
+            </>
+          )}
+          {single && !answered && (
+            <footer className="q-actions">
+              <span />
+              <button type="button" className="btn btn-ghost" onClick={() => void choose(null)}>Show answer</button>
+            </footer>
+          )}
         </article>
       )}
     </div>
   );
+}
+
+function legacyTarget(query: URLSearchParams): string {
+  const get = (k: string) => query.get(k) ?? undefined;
+  if (get('mode') === 'smart') return '/practice/smart';
+  if (get('paper')) return `/practice/paper/${get('paper')}`;
+  if (get('similar')) return similarUrl(Number(get('similar')));
+  if (get('origin') === 'ai' || get('ids')) return `/practice/ai${get('ids') ? `?ids=${get('ids')}` : ''}`;
+  const status = get('status');
+  return practiceUrl({
+    subject: get('subject'), chapter: get('chapter'), exam: get('exam'), stage: get('stage'), year: get('year'),
+    status, order: get('order'), search: get('search'), about: get('semantic'),
+  });
 }
 
 function Select({ label, value, onChange, options, disabled }: {

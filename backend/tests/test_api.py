@@ -135,3 +135,16 @@ def test_compressed_solutions_read_back_as_text(client):
     client.post(f"/api/mocks/{mock_id}/submit", json={"responses": {}})
     review = client.get(f"/api/mocks/{mock_id}/result").json()["questions"]
     assert {q["solution"] for q in review.values()} == {"Use the shortcut: 2 + 2 = 4."}
+
+
+def test_papers_have_readable_slugs_usable_everywhere(client):
+    papers = client.get("/api/papers", params={"exam": "SSC-CGL"}).json()
+    assert [p["slug"] for p in papers] == ["ssc-cgl-2023-07-18-shift-1"]
+    by_slug = client.get("/api/questions", params={"paper": "ssc-cgl-2023-07-18-shift-1", "order": "paper"}).json()
+    by_id = client.get("/api/questions", params={"paper": "P1", "order": "paper"}).json()
+    assert by_slug["total"] == by_id["total"] == 12
+    mock_id = client.post("/api/mocks", json={"paper_id": "ssc-cgl-2023-07-18-shift-1"}).json()["id"]
+    assert client.get(f"/api/mocks/{mock_id}").json()["pattern"]["id"] == "cgl-pre"
+    # Slugs carry the exam, date and shift (clashes on the same day and shift get -2, -3).
+    mts = {p["id"]: p["slug"] for p in client.get("/api/papers", params={"exam": "SSC-MTS"}).json()}
+    assert mts == {"M1": "ssc-mts-2019-08-02-shift-1", "M2": "ssc-mts-2024-10-15-shift-1"}

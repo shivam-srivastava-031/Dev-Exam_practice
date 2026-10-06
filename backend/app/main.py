@@ -165,6 +165,36 @@ def patterns(conn: Conn) -> list[dict]:
     return out
 
 
+# Selection Post holds its Matric / Higher Secondary / Graduation papers in the same shift.
+_LEVELS = (("matric", "matric"), ("higher secondary", "hsc"), ("hsc", "hsc"), ("graduat", "graduation"))
+_slug_cache: dict[str, object] = {}
+
+
+def paper_slugs(conn: sqlite3.Connection) -> tuple[dict[str, str], dict[str, str]]:
+    """Readable, stable URL slugs for real papers, e.g. 'ssc-cgl-2023-07-18-shift-4'.
+
+    Returns (id -> slug, slug -> id). Clashes left after adding the level get -2, -3
+    in paper-id order, so a slug never changes while the question bank stays the same.
+    """
+    stamp = conn.execute("SELECT COUNT(*), MAX(id) FROM papers WHERE id NOT LIKE 'ai-%'").fetchone()
+    if _slug_cache.get("stamp") != tuple(stamp):
+        by_id: dict[str, str] = {}
+        taken: dict[str, int] = {}
+        rows = conn.execute("SELECT id, exam, stage, held_on, shift, title FROM papers "
+                            "WHERE id NOT LIKE 'ai-%' ORDER BY id").fetchall()
+        for r in rows:
+            base = f"{r['exam'].lower()}{'-mains' if r['stage'] == 'mains' else ''}-{r['held_on'] or 'undated'}"
+            if r["shift"]:
+                base += f"-shift-{r['shift']}"
+            if r["exam"] == "SSC-Selection-Post":
+                level = next((tag for word, tag in _LEVELS if word in r["title"].lower()), None)
+                base += f"-{level}" if level else ""
+            taken[base] = taken.get(base, 0) + 1
+            by_id[r["id"]] = base if taken[base] == 1 else f"{base}-{taken[base]}"
+        _slug_cache.update(stamp=tuple(stamp), by_id=by_id, by_slug={v: k for k, v in by_id.items()})
+    return _slug_cache["by_id"], _slug_cache["by_slug"]  # type: ignore[return-value]
+
+
 @app.get("/api/papers")
 def papers(conn: Conn, exam: str, stage: str | None = None) -> list[dict]:
     sql, params = "SELECT * FROM papers WHERE exam = ? AND id NOT LIKE 'ai-%'", [exam]
@@ -176,10 +206,11 @@ def papers(conn: Conn, exam: str, stage: str | None = None) -> list[dict]:
     for m in conn.execute("SELECT id, paper_id, submitted_at, score, max_score FROM mocks "
                           "WHERE paper_id IS NOT NULL ORDER BY created_at"):
         latest[m["paper_id"]] = m
+    slugs, _ = paper_slugs(conn)
     out = []
     for r in rows:
         m = latest.get(r["id"])
-        out.append({**dict(r), "last_mock": dict(m) if m else None})
+        out.append({**dict(r), "slug": slugs.get(r["id"]), "last_mock": dict(m) if m else None})
     return out
 
 
@@ -268,6 +299,8 @@ def list_questions(
         return {"total": len(ranked), "items": practice_items(conn, ranked[start:start + limit]),
                 "next_after": start + limit if start + limit < len(ranked) else None}
 
+    if paper:
+        paper = paper_slugs(conn)[1].get(paper, paper)
     where, params = [STATUS_SQL[status]], {"seed": seed, "limit": limit}
     if origin != "all":
         where.append("q.origin = :origin")
@@ -373,7 +406,7 @@ class MockIn(BaseModel):
 def create_mock(body: MockIn, conn: Conn) -> dict:
     if body.paper_id:
         try:
-            layout = mocks.build_paper_layout(conn, body.paper_id)
+            layout = mocks.build_paper_layout(conn, paper_slugs(conn)[1].get(body.paper_id, body.paper_id))
         except LookupError:
             raise HTTPException(404, "paper not found")
     elif body.pattern_id in PATTERNS_BY_ID and body.adaptive:
