@@ -812,6 +812,40 @@ def export_finetune(body: ExportIn, conn: Conn) -> dict:
     return finetune.export(conn, config.DATA_DIR / "finetune", body.max_examples)
 
 
+# --------------------------------------------------------------------------- browser error reports
+
+CLIENT_ERRORS_KEPT = 30
+
+
+class ClientErrorIn(BaseModel):
+    message: str
+    stack: str = ""
+    component: str = ""
+    url: str = ""
+    ua: str = ""
+    build: str = ""
+
+
+@app.post("/api/client-errors", status_code=204)
+def report_client_error(body: ClientErrorIn, conn: Conn) -> None:
+    """A crash or failed script load in a visitor's browser, kept (newest first) so it can be
+    diagnosed without access to that browser's console."""
+    row = conn.execute("SELECT value FROM settings WHERE key = 'client_errors'").fetchone()
+    kept = json.loads(row["value"]) if row else []
+    limits = {"message": 500, "stack": 2000, "component": 1500, "url": 300, "ua": 300, "build": 100}
+    entry = {"at": conn.execute("SELECT datetime('now')").fetchone()[0],
+             **{k: getattr(body, k)[:n] for k, n in limits.items()}}
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('client_errors', ?)",
+                     (json.dumps([entry, *kept][:CLIENT_ERRORS_KEPT]),))
+
+
+@app.get("/api/client-errors")
+def client_errors(conn: Conn) -> list[dict]:
+    row = conn.execute("SELECT value FROM settings WHERE key = 'client_errors'").fetchone()
+    return json.loads(row["value"]) if row else []
+
+
 # --------------------------------------------------------------------------- frontend
 
 @app.get("/{path:path}", include_in_schema=False)
@@ -822,6 +856,8 @@ def spa(path: str):
     file = (dist / path).resolve()
     if path and file.is_file() and dist in file.parents:
         return FileResponse(file)
+    if path.startswith("assets/"):  # a file from another build: a 404 the page can react to, not HTML
+        raise HTTPException(404)
     index = dist / "index.html"
     if index.is_file():
         return FileResponse(index)

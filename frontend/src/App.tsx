@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { mockUrl, resultUrl, setPageTitle } from './lib/urls';
 import Analytics from './pages/Analytics';
 import Coach from './pages/Coach';
@@ -78,7 +79,10 @@ function Shell() {
         </div>
       </header>
       <main className="page">
-        <Outlet />
+        {/* A crash inside one page leaves the menu working. */}
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
       <footer className="footer">
         <Link to="/ai-lab">AI Lab</Link> · RAG search, trained topic model, self-learning learner model, Gemini

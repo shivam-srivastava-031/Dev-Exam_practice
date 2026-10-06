@@ -9,7 +9,7 @@
     "frontend": {
       "root": "frontend",
       "framework": "vite",
-      "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+      "rewrites": [{ "source": "/((?!assets/).*)", "destination": "/index.html" }]
     }
   },
   "rewrites": [
