@@ -4,6 +4,7 @@
 `bookmarks`, `mocks`, `reviews` and `learner_params` hold the learner's own progress
 and survive re-imports because questions are upserted on their stable dataset `qid`.
 Questions the AI generator writes carry origin = 'ai' and never mix into PYQ papers.
+`news` is the current-affairs archive, filled from news feeds as days are viewed.
 """
 from __future__ import annotations
 
@@ -108,6 +109,21 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Daily current affairs (app/current_affairs.py): news stories kept for their exam relevance.
+CREATE TABLE IF NOT EXISTS news (
+    id        TEXT PRIMARY KEY,           -- hash of the story's URL (Wikipedia: of its day and text)
+    day       TEXT NOT NULL,              -- 'YYYY-MM-DD' in IST (Wikipedia: the page's date)
+    title     TEXT NOT NULL,
+    summary   TEXT,
+    url       TEXT NOT NULL,
+    source    TEXT NOT NULL,
+    section   TEXT,                       -- the source's own label: a feed's state tag, a Wikipedia heading
+    category  TEXT NOT NULL,              -- national | international | economy | science | defence | ...
+    published TEXT,                       -- UTC 'YYYY-MM-DD HH:MM:SS', when the source gives it
+    score     REAL NOT NULL,              -- exam relevance, 0-1
+    related   TEXT NOT NULL DEFAULT '[]'  -- JSON [[question id, similarity], ...]: the closest GK PYQs
+);
 """
 
 INDEXES = """
@@ -119,6 +135,7 @@ CREATE INDEX IF NOT EXISTS ix_attempts_q ON attempts(question_id);
 CREATE INDEX IF NOT EXISTS ix_attempts_time ON attempts(created_at);
 CREATE INDEX IF NOT EXISTS ix_mocks_paper ON mocks(paper_id);
 CREATE INDEX IF NOT EXISTS ix_reviews_due ON reviews(due);
+CREATE INDEX IF NOT EXISTS ix_news_day ON news(day);
 """
 
 

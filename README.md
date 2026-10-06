@@ -23,6 +23,7 @@ the importer clones it for you.
 | **LLM** | Gemini with model fallback. Uses: tutor on every question (figures sent as images), **Ask AI** answers citing the retrieved PYQs, the mock coach, and a **question generator**. The generator retrieves real PYQs as examples, writes new questions, and keeps one only if an independent second solve agrees with its key; it also checks the topic model and rejects near-copies of PYQs. | `ai.py`, `generator.py` |
 | **Fine-tuned model** | The Gemini API returns `501` for tuning on this key and there is no GPU, so the model fine-tuned here is a **topic classifier trained on the 130k labelled PYQs**: 98.2% subject accuracy and 83.3% chapter accuracy (96.4% top-3) on 14.5k held-out questions, trained in about 50 s. It classifies pasted questions, checks generated ones and audits mislabelled dataset rows. The bank is also exported as a supervised fine-tuning dataset for Vertex AI Gemini tuning or LoRA on open models. | `topic_model.py`, `finetune.py` |
 | **Exam engine** | Real previous-year papers, random mocks, **Smart practice** (due reviews first, then topics ranked by exam weightage × how unsure the model is; every pick says why) and **personalised mocks** (the real pattern and timing, with chapters tilted to your weak ones). | `mocks.py`, `engine.py` |
+| **Daily current affairs** | No LLM and no API key. Stories come from Wikipedia's [Current events](https://en.wikipedia.org/wiki/Portal:Current_events) portal (one curated page per day, so any past day can be read) and RSS from The Hindu (national, international, business, sci-tech, sport) and The Indian Express (India). On the server, keyword rules (appointments, awards, schemes, summits, launches, medals; never live blogs, price tickers, reviews, crime or party politics) and similarity to the 2,720 current-affairs PYQs sort each story into one of nine categories and score it. Each kept story is linked to the closest General Awareness PYQs, and those PYQs make up the daily quiz. | `current_affairs.py` |
 | **Self-learning learner model** | An online 3-PL IRT model: `P(correct) = 0.25 + 0.75·σ(ability + subject skill + chapter skill − exam difficulty − question difficulty)`. Every answer updates it, with step sizes that shrink as evidence grows. Each forecast is stored **before** the answer is known, so calibration (Brier, log-loss vs a no-skill baseline) is measured honestly. Every 100 answers it replays your history under 9+ learning-rate settings and keeps the best. Missed questions go into a spaced-repetition queue. | `learner.py` |
 
 ## What you can do
@@ -32,6 +33,11 @@ the importer clones it for you.
 - **Smart practice** (`/practice?mode=smart`): questions chosen by the adaptive engine, each with its reason.
 - **Search** by meaning or keyword, or paste a whole question to find its twins and its topic. **Ask AI** answers from the
   retrieved PYQs, and the cited numbers jump to the questions.
+- **Current affairs** (`/current-affairs`): the day's exam-relevant news, most relevant first, with category filters
+  (National, International, Economy, Science & Tech, Defence, Environment, Sports, Awards, People in news) and, under a
+  story, the past SSC questions on the same topic. Earlier days stay browsable for 60 days. The **daily quiz** is 10 real
+  PYQs: those linked to the day's stories, then recent current-affairs PYQs you had not tried before that day. It runs
+  as normal practice, so answers feed your learner model.
 - **Coach**: predicted score for your target exam, a mastery map of every topic, next steps, generated questions for your
   weakest topic, and how well the model knows you (a calibration plot plus a retrain button).
 - **Mock tests**: any of 1,397 real papers, full random mocks or personalised mocks, in an exam room that behaves like the real CBT:
@@ -53,6 +59,8 @@ Every page and state has a readable, shareable URL. Refresh, Back and Forward ke
 | `/practice/smart`, `/practice/ai` | smart practice, AI-generated questions |
 | `/practice/paper/ssc-cgl-2023-07-18-shift-4` | one previous-year paper, untimed |
 | `/question/17264`, `/practice/similar/17264` | one question, and questions like it |
+| `/current-affairs`, `/current-affairs/2026-10-06?category=sports` | today's current affairs, or one day's, filtered |
+| `/practice/news/2026-10-06` | that day's current-affairs quiz |
 | `/mocks/ssc-cgl`, `/mocks/ssc-cgl/mains` | mock tests for an exam and stage |
 | `/mock/<id>`, `/mock/<id>/result` | exam room and result |
 | `/search?q=red+fort`, `/coach`, `/progress`, `/ai-lab` | search, coach, progress, AI Lab |
@@ -105,7 +113,8 @@ python deploy/package_release.py --tag data-v2      # writes ../release/* and de
 gh release create data-v2 ../release/* --title "Question bank and models v2"
 ```
 
-**Your progress** (answers, bookmarks, mocks, learner model, reviews, generated questions) is kept in a
+**Your progress** (answers, bookmarks, mocks, learner model, reviews, generated questions, and the current-affairs
+archive, since news feeds only reach back a few days) is kept in a
 [Turso](https://turso.tech) database, because Vercel's disk is temporary. The app copies the bank to `/tmp` at cold start
 (about 3 s), pulls your progress, and pushes every change back. The app is **single-user**: anyone with the URL shares the
 same progress and uses your Gemini key.
@@ -157,11 +166,13 @@ Open http://127.0.0.1:8000.
 | `python -m app.rag` | Rebuild the vector index |
 | `python -m app.topic_model train` / `audit` | Retrain the classifier / list probable mislabels |
 | `python -m app.finetune --max 20000` | Export the fine-tuning dataset to `data/finetune/` |
-| `python -m pytest` | 45 tests: import, grading, practice, RAG, topic model, learner model, engine, generator, Turso sync, artifact download |
+| `python -m pytest` | 66 tests: import, grading, practice, RAG, topic model, learner model, engine, generator, current affairs, Turso sync, artifact download |
 | `USE_BUNDLE=1 python -m uvicorn app.main:app` | Run exactly as deployed: downloads the release into temp storage on start |
 
 **Development:** run the backend with `--reload` and `npm run dev` in `frontend/`. Vite serves http://localhost:5173 and
-sends `/api` requests to the backend. Without a Gemini key the app still works; the AI features are hidden.
+sends `/api` requests to the backend. Without a Gemini key the app still works; the AI features are hidden. Current
+affairs never use Gemini: opening the page fetches Wikipedia and the feeds at most every 30 minutes (Wikipedia: hourly
+for a day's page while it is still being edited).
 
 ## Data notes
 
@@ -192,8 +203,9 @@ backend/app/
   ai.py           Gemini: tutor, Ask AI (RAG), coach, structured generation, model fallback
   generator.py    grounded, self-verified question generation
   finetune.py     supervised fine-tuning dataset export
+  current_affairs.py  daily news from Wikipedia and RSS, scored and linked to PYQs locally (no LLM)
   main.py         FastAPI routes; also serves frontend/dist
 frontend/src/
-  pages/          Dashboard, Practice, Mocks, ExamRoom, Result, Search, Coach, Lab, Analytics
+  pages/          Dashboard, Practice, Mocks, ExamRoom, Result, Search, CurrentAffairs, Coach, Lab, Analytics
   components/     rich text, options, AI tutor, charts (incl. calibration plot)
 ```

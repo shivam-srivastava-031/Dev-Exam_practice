@@ -5,7 +5,7 @@ cold start, but /tmp disappears with the instance. Everything the learner create
 therefore lives in a Turso database (hosted SQLite, spoken to over its HTTP API):
 
     attempts, bookmarks, mocks, learner_params, reviews, settings,
-    and the AI-generated questions with their 'paper' rows.
+    the AI-generated questions with their 'paper' rows, and the current-affairs archive.
 
 * pull(): on cold start, and whenever another instance has written since (a version
   counter in Turso says so), these local tables are replaced with Turso's copy.
@@ -48,6 +48,8 @@ SPECS = (
     Spec("learner_params", "learner_params", "1 = 1", "key"),
     Spec("reviews", "reviews", "1 = 1", "question_id"),
     Spec("settings", "settings", "1 = 1", "key"),
+    # Feeds only reach back a few days, so the archive is kept like progress (60 days, at most 40 a day).
+    Spec("news", "news", "1 = 1", "id"),
 )
 
 

@@ -130,6 +130,20 @@ def test_ai_generated_questions_are_restored_with_their_search_entries(deployed,
         assert c.get("/api/stats").json()["totals"]["attempts"] == 1
 
 
+def test_current_affairs_archive_survives_a_cold_start(deployed, turso, monkeypatch):
+    from tests.test_current_affairs import serve_news
+    calls = serve_news(monkeypatch)
+    with deployed("news-1") as c:
+        stories = c.post("/api/current-affairs/refresh").json()["stories"]
+        assert stories
+    assert turso.conn.execute("SELECT COUNT(*) FROM news").fetchone()[0] >= len(stories)
+    fetched = len(calls)
+    with deployed("news-2") as c:  # a fresh instance shows the same day without fetching anything
+        day = c.get("/api/current-affairs").json()
+        assert [s["id"] for s in day["stories"]] == [s["id"] for s in stories] and day["needs_refresh"] is False
+    assert len(calls) == fetched
+
+
 def test_local_mode_does_not_touch_turso(client):
     assert persistence.get() is None
     assert client.get("/api/lab").json()["storage"] == "local"

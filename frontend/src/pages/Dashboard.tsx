@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { api, useAsync, useMeta } from '../api';
 import { fmtDateTime, fmtNum, fmtPct, fmtScore } from '../lib/format';
-import { mockUrl, mocksUrl, practiceUrl, resultUrl, setPageTitle, smartUrl } from '../lib/urls';
+import { currentAffairsUrl, mockUrl, mocksUrl, practiceUrl, resultUrl, setPageTitle, smartUrl } from '../lib/urls';
 
 const SUBJECT_BLURB: Record<string, string> = {
   REAS: 'Series, analogy, coding-decoding, puzzles, non-verbal',
@@ -36,6 +36,7 @@ export default function Dashboard() {
         <div className="row gap wrap">
           <Link className="btn btn-primary btn-lg" to={smartUrl()}>Smart practice</Link>
           <Link className="btn btn-lg" to={mocksUrl()}>Take a mock test</Link>
+          <Link className="btn btn-lg" to={currentAffairsUrl()}>Today's current affairs</Link>
           <Link className="btn btn-lg" to="/search">Search by meaning</Link>
         </div>
         <p className="muted small">

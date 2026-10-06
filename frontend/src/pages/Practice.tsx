@@ -4,17 +4,17 @@ import { api, useMeta, type QuestionFilters } from '../api';
 import { AiTutor } from '../components/AiTutor';
 import { Markup } from '../components/Markup';
 import { OptionList } from '../components/OptionList';
-import { fmtNum, fmtPct } from '../lib/format';
+import { fmtDate, fmtNum, fmtPct } from '../lib/format';
 import {
-  EXAM_NAMES, SHOW_TO_STATUS, SUBJECT_NAMES, examCode, practiceUrl, questionUrl, roughLabel, searchUrl, setPageTitle,
-  similarUrl, subjectCode, type PracticeTarget,
+  EXAM_NAMES, SHOW_TO_STATUS, SUBJECT_NAMES, currentAffairsUrl, examCode, practiceUrl, questionUrl, roughLabel, searchUrl,
+  setPageTitle, similarUrl, subjectCode, type PracticeTarget,
 } from '../lib/urls';
 import type { AnswerResult, PracticeQuestion } from '../types';
 
 const PAGE = 20;
 
 /** Where the questions come from; each mode has its own URL (see lib/urls.ts). */
-export type PracticeMode = 'filter' | 'smart' | 'ai' | 'paper' | 'similar' | 'question';
+export type PracticeMode = 'filter' | 'smart' | 'ai' | 'paper' | 'similar' | 'question' | 'news';
 
 interface Answered {
   chosen: number | null;
@@ -51,13 +51,14 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
       case 'question': return { ids: params.id };
       case 'ai': return query.get('ids') ? { ids: query.get('ids')! } : { origin: 'ai', order: 'sequential' };
       case 'smart': return { subject: target.subject };
+      case 'news': return {}; // the day's quiz comes from its own endpoint (see load)
       default: return {
         exam: target.exam, stage: target.stage, subject: target.subject, chapter: target.chapter, year: target.year,
         status: target.status, order: target.order, search: target.search, semantic: target.about,
       };
     }
   }, [mode, params.paper, params.id, query, target]);
-  const filterKey = mode + JSON.stringify(filters);
+  const filterKey = mode + JSON.stringify(filters) + (mode === 'news' ? params.day : '');
   const currentId = Number(query.get('q')) || null;
 
   const [items, setItems] = useState<PracticeQuestion[]>([]);
@@ -79,6 +80,10 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
     if (mode === 'smart') {
       const r = await api.smart(10, filters.subject, loaded.map((it) => it.id));
       return { total: 0, items: r.items, next_after: r.items.length ? 1 : null };
+    }
+    if (mode === 'news') {
+      const r = await api.newsQuiz(params.day ?? '');
+      return { total: r.items.length, items: r.items, next_after: null };
     }
     return api.questions({ ...filters, seed, after, limit: PAGE });
   }, [filterKey, seed]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -198,6 +203,7 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
       paper: q ? `${q.paper_title} (untimed)` : 'Previous-year paper',
       similar: 'Similar questions',
       question: q ? `${subjectName(q.subject)} question #${q.id}` : `Question #${params.id}`,
+      news: `Current-affairs quiz · ${fmtDate(params.day)}`,
     };
     setPageTitle(titles[mode]);
   }); // eslint-disable-line react-hooks/exhaustive-deps
@@ -243,6 +249,9 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
           <span>
             {mode === 'smart' ? <>Smart practice: questions picked for you by the adaptive engine. Each one says why,
               and every answer updates your learner model. <Link to="/coach">How it decides →</Link></>
+              : mode === 'news' ? <>Current-affairs quiz for <strong>{fmtDate(params.day)}</strong>: real SSC questions on
+                topics in that day's news, then recent current-affairs PYQs.{' '}
+                <Link to={currentAffairsUrl(params.day)}>Back to the news</Link></>
               : mode === 'paper' ? <>Practising one previous-year paper, untimed{q ? <>: <strong>{q.paper_title}</strong></> : null}</>
                 : target.about ? <>Questions matching “<strong>{target.about}</strong>” (<Link to={searchUrl(target.about)}>back to search</Link>)</>
                   : mode === 'similar' ? <>Questions most similar in meaning to <Link to={questionUrl(Number(params.id))}>question #{params.id}</Link></>
@@ -285,7 +294,7 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
         <div className="row between wrap session-bar">
           <span className="muted">
             {loading ? 'Loading questions…' : mode === 'smart' ? 'Adapts after every answer'
-              : `${fmtNum(total)} matching question${total === 1 ? '' : 's'}`}
+              : `${fmtNum(total)} ${mode === 'news' ? '' : 'matching '}question${total === 1 ? '' : 's'}`}
           </span>
           {session.length > 0 && (
             <span className="session-tally">

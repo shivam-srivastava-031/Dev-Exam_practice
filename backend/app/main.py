@@ -10,6 +10,7 @@ import re
 import sqlite3
 import threading
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 from typing import Annotated, AsyncIterator, Callable, Iterator, Literal
 
@@ -19,7 +20,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import ai, artifacts, config, db, engine, finetune, generator, learner, mocks, persistence, rag, topic_model
+from . import (ai, artifacts, config, current_affairs, db, engine, finetune, generator, learner, mocks, persistence, rag,
+               topic_model)
 from .catalog import EXAMS, PATTERNS, PATTERNS_BY_ID, SUBJECTS, chapter_label, pattern_summary, stage_name
 
 
@@ -773,6 +775,37 @@ def set_target(body: TargetIn, conn: Conn) -> dict:
 def retrain_learner(conn: Conn) -> dict:
     with _retrain_lock:
         return learner.retrain(conn)
+
+
+# --------------------------------------------------------------------------- daily current affairs (no LLM)
+
+def _news_day(day: str | None) -> date:
+    try:
+        return current_affairs.parse_day(day)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/api/current-affairs")
+def current_affairs_day(conn: Conn, day: str | None = None) -> dict:
+    """The stories stored for a day (default: today in IST). `needs_refresh` says when to call refresh."""
+    return current_affairs.digest(conn, _news_day(day))
+
+
+@app.post("/api/current-affairs/refresh")
+async def refresh_current_affairs(conn: Conn, day: str | None = None) -> dict:
+    """Fetch the news feeds and the day's Wikipedia page, if due, then return the day as GET does."""
+    d = _news_day(day)
+    failed = await current_affairs.refresh(conn, d)
+    return {**current_affairs.digest(conn, d), "failed_sources": failed}
+
+
+@app.get("/api/current-affairs/quiz")
+def current_affairs_quiz(conn: Conn, day: str | None = None) -> dict:
+    d = _news_day(day)
+    picks = current_affairs.quiz(conn, d)
+    return {"day": d.isoformat(), "items": practice_items(
+        conn, [p["id"] for p in picks], {p["id"]: {"reason": p["reason"], "kind": p["kind"]} for p in picks})}
 
 
 # --------------------------------------------------------------------------- AI lab (model status)

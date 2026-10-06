@@ -49,9 +49,9 @@ export interface PracticeQuestion extends Question {
   origin: 'pyq' | 'ai';
   /** Learner model's P(correct) for this question, before answering. */
   predicted: number;
-  /** Why the adaptive engine picked it (smart practice). */
+  /** Why the adaptive engine picked it (smart practice), or the story it is linked to (current-affairs quiz). */
   reason?: string;
-  kind?: 'review' | 'weak' | 'new' | 'weightage';
+  kind?: 'review' | 'weak' | 'new' | 'weightage' | 'news' | 'recent';
   /** Which retriever found it (search). */
   via?: ('meaning' | 'keyword')[];
   similarity?: number | null;
@@ -310,6 +310,40 @@ export interface LabStatus {
   finetune: { ready: boolean; examples?: number; train?: number; val?: number; eligible?: number; exported_at?: string; out?: string };
   ai_questions: number;
   gemini: { enabled: boolean; models: string[] };
+}
+
+export type NewsCategory =
+  | 'national' | 'international' | 'economy' | 'science' | 'defence' | 'environment' | 'sports' | 'awards' | 'people';
+
+export interface NewsStory {
+  id: string;
+  title: string;
+  summary: string;
+  url: string;
+  source: string;
+  category: NewsCategory;
+  /** UTC, when the source gives a time. */
+  published: string | null;
+  /** Exam relevance, 0–1; stories come sorted by it. */
+  score: number;
+  /** The closest General Awareness PYQs, without their answers. */
+  related: { id: number; question: string; year: number | null; paper_title: string }[];
+}
+
+export interface CurrentAffairs {
+  day: string;
+  today: string;
+  oldest: string;
+  stories: NewsStory[];
+  categories: { code: NewsCategory; name: string; count: number }[];
+  days: { day: string; stories: number }[];
+  updated_at: string | null;
+  /** The feeds or the day's Wikipedia page are due another read: POST refresh. */
+  needs_refresh: boolean;
+  quiz_linked: number;
+  quiz_size: number;
+  /** Only on a refresh: sources that could not be reached. */
+  failed_sources?: string[];
 }
 
 export interface GenerateReport {

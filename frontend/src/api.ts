@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type {
-  AnswerResult, GenerateReport, LabStatus, LearnerOverview, Meta, Mock, MockResult, MockSummary, Paper, Pattern,
-  PracticeQuestion, QuestionPage, SearchResponse, Stats, TopicGuess, TrainingReport,
+  AnswerResult, CurrentAffairs, GenerateReport, LabStatus, LearnerOverview, Meta, Mock, MockResult, MockSummary, Paper,
+  Pattern, PracticeQuestion, QuestionPage, SearchResponse, Stats, TopicGuess, TrainingReport,
 } from './types';
 
 // The newest progress version any response has carried. The live site runs on several server
@@ -133,6 +133,11 @@ export const api = {
   exportFinetune: (max_examples: number) => post<NonNullable<LabStatus['finetune']>>('/api/lab/finetune', { max_examples }),
   generate: (body: { exam: string; stage: string; subject: string; chapter: string; count: number }) =>
     post<GenerateReport>('/api/ai/generate', body),
+  /** A day's current affairs (default: today in IST); no AI involved. */
+  currentAffairs: (day?: string) => request<CurrentAffairs>(`/api/current-affairs?${query({ day })}`),
+  refreshCurrentAffairs: (day?: string) => post<CurrentAffairs>(`/api/current-affairs/refresh?${query({ day })}`),
+  newsQuiz: (day: string) =>
+    request<{ day: string; items: PracticeQuestion[] }>(`/api/current-affairs/quiz?${query({ day })}`),
 };
 
 /** POST and stream a plain-text body, reporting the accumulated text as it arrives. */

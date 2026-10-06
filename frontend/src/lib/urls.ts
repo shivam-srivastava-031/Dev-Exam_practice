@@ -6,10 +6,12 @@
 //   /practice/smart | /practice/ai    smart practice | AI-generated questions
 //   /practice/paper/<paper-slug>      one previous-year paper, untimed
 //   /practice/similar/<question-id>   questions like that one
+//   /practice/news/2026-10-06         that day's current-affairs quiz
 //   /question/<id>                    one question, shareable
 //   ?exam=ssc-cgl&stage=mains&year=2023&show=wrong&order=in-order&search=...&q=<current question id>
 //   /mocks/ssc-cgl[/mains]            mock tests for an exam
 //   /mock/<id>, /mock/<id>/result     exam room, result
+//   /current-affairs[/2026-10-06]     today's (or that day's) news, sorted for the exam; ?category=sports
 //   /search?q=...  /coach  /progress  /ai-lab
 
 export const SUBJECT_SLUGS: Record<string, string> = {
@@ -89,6 +91,10 @@ export const mocksUrl = (exam?: string, stage?: string) =>
 export const mockUrl = (id: string) => `/mock/${id}`;
 export const resultUrl = (id: string) => `/mock/${id}/result`;
 export const searchUrl = (q?: string) => withQuery('/search', { q });
+/** No day means today, so the plain URL always opens the latest news. */
+export const currentAffairsUrl = (day?: string, category?: string) =>
+  withQuery(day ? `/current-affairs/${day}` : '/current-affairs', { category });
+export const newsQuizUrl = (day: string) => `/practice/news/${day}`;
 
 export function withQuery(path: string, params: Record<string, string | number | undefined | null>): string {
   const qs = new URLSearchParams();

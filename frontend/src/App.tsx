@@ -4,6 +4,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { mockUrl, resultUrl, setPageTitle } from './lib/urls';
 import Analytics from './pages/Analytics';
 import Coach from './pages/Coach';
+import CurrentAffairs from './pages/CurrentAffairs';
 import Dashboard from './pages/Dashboard';
 import ExamRoom from './pages/ExamRoom';
 import Lab from './pages/Lab';
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="practice/ai" element={<Practice key="ai" mode="ai" />} />
         <Route path="practice/paper/:paper" element={<Practice key="paper" mode="paper" />} />
         <Route path="practice/similar/:id" element={<Practice key="similar" mode="similar" />} />
+        <Route path="practice/news/:day" element={<Practice key="news" mode="news" />} />
         <Route path="practice/:subject" element={<Practice key="subject" />} />
         <Route path="practice/:subject/:chapter" element={<Practice key="chapter" />} />
         <Route path="question/:id" element={<Practice key="question" mode="question" />} />
@@ -34,6 +36,9 @@ export default function App() {
         <Route path="mocks/:exam" element={<Mocks />} />
         <Route path="mocks/:exam/:stage" element={<Mocks />} />
         <Route path="mock/:id/result" element={<Result />} />
+
+        <Route path="current-affairs" element={<CurrentAffairs />} />
+        <Route path="current-affairs/:day" element={<CurrentAffairs />} />
 
         <Route path="search" element={<Search />} />
         <Route path="coach" element={<Coach />} />
@@ -70,8 +75,11 @@ function Shell() {
           </Link>
           <nav className="nav">
             <NavLink to="/" end>Home</NavLink>
-            <NavLink to="/practice" className={({ isActive }) => (isActive || pathname.startsWith('/question') ? 'active' : '')}>Practice</NavLink>
+            <NavLink to="/practice" className={({ isActive }) =>
+              ((isActive && !pathname.startsWith('/practice/news')) || pathname.startsWith('/question') ? 'active' : '')}>Practice</NavLink>
             <NavLink to="/mocks" className={({ isActive }) => (isActive || pathname.startsWith('/mock/') ? 'active' : '')}>Mocks</NavLink>
+            <NavLink to="/current-affairs" className={({ isActive }) =>
+              (isActive || pathname.startsWith('/practice/news') ? 'active' : '')}>Current affairs</NavLink>
             <NavLink to="/search">Search</NavLink>
             <NavLink to="/coach">Coach</NavLink>
             <NavLink to="/progress">Progress</NavLink>
