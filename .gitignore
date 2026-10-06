@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+.pytest_cache/
+
+# Secrets — the Gemini key lives here, never commit it
+.env
+backend/.env
+
+# Local data: the cloned dataset, the SQLite bank, vector index, trained models, exports
+data/source/
+data/index/
+data/models/
+data/finetune/
+backend/exam.db
+backend/exam.db-*
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
