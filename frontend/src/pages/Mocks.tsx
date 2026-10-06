@@ -1,15 +1,18 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, useAsync, useMeta } from '../api';
 import { fmtNum, fmtScore, paperLabel } from '../lib/format';
+import { examCode, mockUrl, mocksUrl, paperPracticeUrl, resultUrl, setPageTitle } from '../lib/urls';
 import type { Paper, Pattern } from '../types';
 
 export default function Mocks() {
   const { meta, error: metaError } = useMeta();
-  const [params, setParams] = useSearchParams();
+  const route = useParams();
+  const [legacy] = useSearchParams();  // old /mocks?exam=SSC-CGL&stage=mains links
   const navigate = useNavigate();
-  const exam = meta?.exams.find((e) => e.code === params.get('exam')) ?? meta?.exams[0];
-  const stage = exam?.stages.find((s) => s.code === params.get('stage')) ?? exam?.stages[0];
+  const wanted = examCode(route.exam ?? legacy.get('exam'));
+  const exam = meta?.exams.find((e) => e.code === wanted) ?? meta?.exams[0];
+  const stage = exam?.stages.find((s) => s.code === (route.stage ?? legacy.get('stage'))) ?? exam?.stages[0];
   const patterns = useAsync(() => api.patterns(), []);
   const papers = useAsync(
     () => (exam && stage ? api.papers(exam.code, stage.code) : Promise.resolve([] as Paper[])),
@@ -34,21 +37,24 @@ export default function Mocks() {
     setError(null);
     try {
       const { id } = await api.createMock(body);
-      navigate(`/exam/${id}`);
+      navigate(mockUrl(id));
     } catch (e) {
       setError((e as Error).message);
       setStarting(null);
     }
   }
 
+  useEffect(() => {
+    if (exam && stage) setPageTitle(`${exam.name} ${stage.name} mock tests`);
+  }, [exam, stage]);
+
   if (metaError) return <p className="error-text">{metaError}</p>;
   if (!meta || !exam || !stage) return <p className="muted">Loading…</p>;
+  // /mocks, /mocks?exam=..., or a wrong slug all settle on the canonical /mocks/<exam>[/mains].
+  const canonical = mocksUrl(exam.code, stage.code);
+  if (window.location.pathname !== canonical) return <Navigate replace to={canonical} />;
 
-  const pick = (examCode: string, stageCode?: string) => {
-    const next = new URLSearchParams({ exam: examCode });
-    if (stageCode) next.set('stage', stageCode);
-    setParams(next, { replace: true });
-  };
+  const pick = (code: string, stageCode?: string) => navigate(mocksUrl(code, stageCode));
 
   return (
     <div className="stack-lg">
@@ -100,15 +106,15 @@ export default function Mocks() {
                   </div>
                   <div className="paper-status">
                     {p.last_mock?.submitted_at ? (
-                      <Link to={`/result/${p.last_mock.id}`} className="pill pill-good">
+                      <Link to={resultUrl(p.last_mock.id)} className="pill pill-good">
                         Scored {fmtScore(p.last_mock.score ?? 0)}/{fmtScore(p.last_mock.max_score ?? 0)}
                       </Link>
                     ) : p.last_mock ? (
-                      <Link to={`/exam/${p.last_mock.id}`} className="pill pill-warn">In progress · resume</Link>
+                      <Link to={mockUrl(p.last_mock.id)} className="pill pill-warn">In progress · resume</Link>
                     ) : null}
                   </div>
                   <div className="paper-actions">
-                    <Link className="btn btn-sm btn-ghost" to={`/practice?paper=${p.id}`}>Practise</Link>
+                    <Link className="btn btn-sm btn-ghost" to={paperPracticeUrl(p.slug)}>Practise</Link>
                     <button type="button" className="btn btn-sm btn-primary" disabled={starting !== null}
                       onClick={() => void start(p.id, { paper_id: p.id })}>
                       {starting === p.id ? 'Starting…' : p.last_mock?.submitted_at ? 'Retake' : 'Attempt'}

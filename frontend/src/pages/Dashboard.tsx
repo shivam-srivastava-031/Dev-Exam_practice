@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { api, useAsync, useMeta } from '../api';
 import { fmtDateTime, fmtNum, fmtPct, fmtScore } from '../lib/format';
+import { mockUrl, mocksUrl, practiceUrl, resultUrl, setPageTitle, smartUrl } from '../lib/urls';
 
 const SUBJECT_BLURB: Record<string, string> = {
   REAS: 'Series, analogy, coding-decoding, puzzles, non-verbal',
@@ -15,6 +16,7 @@ export default function Dashboard() {
   const stats = useAsync(() => api.stats(), []);
   const mocks = useAsync(() => api.mocks(), []);
 
+  setPageTitle();
   if (error) return <p className="error-text">Could not reach the server: {error}</p>;
   if (!meta) return <p className="muted">Loading…</p>;
 
@@ -32,8 +34,8 @@ export default function Dashboard() {
           interface.
         </p>
         <div className="row gap wrap">
-          <Link className="btn btn-primary btn-lg" to="/practice?mode=smart">Smart practice</Link>
-          <Link className="btn btn-lg" to="/mocks">Take a mock test</Link>
+          <Link className="btn btn-primary btn-lg" to={smartUrl()}>Smart practice</Link>
+          <Link className="btn btn-lg" to={mocksUrl()}>Take a mock test</Link>
           <Link className="btn btn-lg" to="/search">Search by meaning</Link>
         </div>
         <p className="muted small">
@@ -48,7 +50,7 @@ export default function Dashboard() {
             {inProgress.map((m) => (
               <li key={m.id} className="row between">
                 <span>{m.title}</span>
-                <Link className="btn btn-primary btn-sm" to={`/exam/${m.id}`}>Resume</Link>
+                <Link className="btn btn-primary btn-sm" to={mockUrl(m.id)}>Resume</Link>
               </li>
             ))}
           </ul>
@@ -68,7 +70,7 @@ export default function Dashboard() {
         <h2>Practise by subject</h2>
         <div className="grid-cards">
           {meta.subjects.filter((s) => s.count > 0).map((s) => (
-            <Link key={s.code} to={`/practice?subject=${s.code}`} className="card card-link">
+            <Link key={s.code} to={practiceUrl({ subject: s.code })} className="card card-link">
               <span className="card-title">{s.name}</span>
               <span className="muted small">{SUBJECT_BLURB[s.code]}</span>
               <span className="card-foot">{fmtNum(s.count)} questions</span>
@@ -81,7 +83,7 @@ export default function Dashboard() {
         <h2>Mock tests by exam</h2>
         <div className="grid-cards">
           {meta.exams.map((e) => (
-            <Link key={e.code} to={`/mocks?exam=${e.code}`} className="card card-link">
+            <Link key={e.code} to={mocksUrl(e.code)} className="card card-link">
               <span className="card-title">{e.name}</span>
               {e.stages.map((s) => (
                 <span key={s.code} className="muted small">
@@ -97,7 +99,7 @@ export default function Dashboard() {
         <section className="stack">
           <div className="row between">
             <h2>Recent mocks</h2>
-            <Link to="/analytics">All progress →</Link>
+            <Link to="/progress">All progress →</Link>
           </div>
           <div className="card table-card">
             <table className="table">
@@ -105,7 +107,7 @@ export default function Dashboard() {
               <tbody>
                 {recent.map((m) => (
                   <tr key={m.id}>
-                    <td><Link to={`/result/${m.id}`}>{m.title}</Link></td>
+                    <td><Link to={resultUrl(m.id)}>{m.title}</Link></td>
                     <td className="muted">{fmtDateTime(m.submitted_at)}</td>
                     <td className="num">{fmtScore(m.score ?? 0)} / {fmtScore(m.max_score ?? 0)}</td>
                   </tr>

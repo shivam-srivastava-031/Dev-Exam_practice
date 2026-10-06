@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, streamText, useMeta } from '../api';
 import { Markup } from '../components/Markup';
 import { fmtNum, fmtPct } from '../lib/format';
+import { examCode, examSlug, practiceUrl, questionUrl, setPageTitle, similarUrl, subjectCode, subjectSlug } from '../lib/urls';
 import type { SearchResponse } from '../types';
 
 const EXAMPLES = ['who built the Red Fort', 'boat upstream downstream', 'successive discounts shortcut',
@@ -18,14 +19,16 @@ export default function Search() {
   const { meta } = useMeta();
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
-  const exam = params.get('exam') ?? '';
-  const subject = params.get('subject') ?? '';
+  // Slugs in the URL (?exam=ssc-cgl&subject=quant), codes for the API.
+  const exam = examCode(params.get('exam')) ?? '';
+  const subject = subjectCode(params.get('subject') ?? undefined) ?? '';
   const [draft, setDraft] = useState(q);
   const [res, setRes] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => setDraft(q), [q]);
+  useEffect(() => setPageTitle(q ? `Search: ${q.length > 60 ? `${q.slice(0, 57)}…` : q}` : 'Search'), [q]);
   useEffect(() => {
     if (q.trim().length < 2) {
       setRes(null);
@@ -49,14 +52,14 @@ export default function Search() {
     setParams(next);
   }
 
-  function setFilter(key: string, value: string) {
+  function setFilter(key: 'exam' | 'subject', code: string) {
+    const value = !code ? '' : key === 'exam' ? examSlug(code) : subjectSlug(code);
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
     setParams(next, { replace: true });
   }
 
-  const practiseAll = new URLSearchParams({ semantic: q, ...(exam ? { exam } : {}), ...(subject ? { subject } : {}) });
 
   return (
     <div className="stack-lg search-page">
@@ -113,7 +116,7 @@ export default function Search() {
               <div className="row gap wrap">
                 {res.classification.map((g, i) => (
                   <Link key={g.chapter} className={`pill ${i === 0 ? 'pill-soft' : ''}`}
-                    to={`/practice?subject=${g.subject}&chapter=${g.chapter}`}>
+                    to={practiceUrl({ subject: g.subject, chapter: g.chapter })}>
                     {g.label} · {fmtPct(g.probability)}
                   </Link>
                 ))}
@@ -131,7 +134,7 @@ export default function Search() {
               {res.results.length} closest matches{!res.dense_index && ' (keyword only: the vector index is not built yet)'}
             </span>
             {res.results.length > 0 && (
-              <Link className="btn btn-sm" to={`/practice?${practiseAll}`}>Practise these →</Link>
+              <Link className="btn btn-sm" to={practiceUrl({ about: q, exam: exam || undefined, subject: subject || undefined })}>Practise these →</Link>
             )}
           </div>
 
@@ -146,8 +149,8 @@ export default function Search() {
                   {r.via?.map((v) => <span key={v} className="via">{v === 'meaning' ? 'meaning match' : 'keyword match'}</span>)}
                 </div>
                 <div className="row gap">
-                  <Link className="btn btn-sm btn-ghost" to={`/practice?similar=${r.id}`}>Similar</Link>
-                  <Link className="btn btn-sm" to={`/practice?ids=${r.id}`}>Practise</Link>
+                  <Link className="btn btn-sm btn-ghost" to={similarUrl(r.id)}>Similar</Link>
+                  <Link className="btn btn-sm" to={questionUrl(r.id)}>Practise</Link>
                 </div>
               </header>
               <p className="q-source muted small">{r.paper_title}</p>

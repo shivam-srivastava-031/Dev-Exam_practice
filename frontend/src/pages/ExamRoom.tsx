@@ -4,6 +4,7 @@ import { api, type ResponsePayload } from '../api';
 import { Markup } from '../components/Markup';
 import { OptionList } from '../components/OptionList';
 import { fmtClock, fmtScore } from '../lib/format';
+import { mocksUrl, resultUrl, setPageTitle } from '../lib/urls';
 import type { Mock, Part } from '../types';
 
 // The exam room reproduces the SSC CBT interface (TCS iON): an option only
@@ -123,7 +124,7 @@ export default function ExamRoom() {
 
   useEffect(() => {
     api.mock(id).then(
-      (m) => (m.submitted ? navigate(`/result/${id}`, { replace: true }) : setMock(m)),
+      (m) => (m.submitted ? navigate(resultUrl(id), { replace: true }) : setMock(m)),
       (e: Error) => setError(e.message),
     );
   }, [id, navigate]);
@@ -132,11 +133,12 @@ export default function ExamRoom() {
     return (
       <div className="exam-message">
         <p className="error-text">{error}</p>
-        <Link to="/mocks">Back to mock tests</Link>
+        <Link to={mocksUrl()}>Back to mock tests</Link>
       </div>
     );
   }
   if (!mock) return <div className="exam-message">Loading question paper…</div>;
+  setPageTitle(mock.title);
   return <ExamSession mock={mock} />;
 }
 
@@ -255,7 +257,7 @@ function ExamSession({ mock }: { mock: Mock }) {
       } catch {
         /* ignore */
       }
-      navigate(`/result/${mock.id}`, { replace: true });
+      navigate(resultUrl(mock.id), { replace: true });
     } catch (e) {
       setSubmitError((e as Error).message);
       submitLock.current = false;
@@ -444,7 +446,7 @@ function Instructions({ mock, onStart }: { mock: Mock; onStart: () => void }) {
 
   async function discard() {
     await api.discardMock(mock.id).catch(() => undefined);
-    navigate('/mocks');
+    navigate(mocksUrl(mock.pattern.exam, mock.pattern.stage));
   }
 
   return (

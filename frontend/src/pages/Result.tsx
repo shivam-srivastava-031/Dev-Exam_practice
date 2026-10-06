@@ -5,6 +5,7 @@ import { AiTutor } from '../components/AiTutor';
 import { Markup } from '../components/Markup';
 import { OptionList } from '../components/OptionList';
 import { fmtDateTime, fmtDuration, fmtPct, fmtScore } from '../lib/format';
+import { mockUrl, mocksUrl, setPageTitle } from '../lib/urls';
 import type { MockResult, QuestionStatus } from '../types';
 import { Tile } from './Dashboard';
 
@@ -17,6 +18,7 @@ export default function Result() {
 
   if (res.error) return <p className="error-text">{res.error}</p>;
   if (!res.data) return <p className="muted">Loading result…</p>;
+  setPageTitle(`Result: ${res.data.title}`);
   return <ResultView r={res.data} aiEnabled={!!meta?.ai_enabled} />;
 }
 
@@ -50,7 +52,7 @@ function ResultView({ r, aiEnabled }: { r: MockResult; aiEnabled: boolean }) {
     setStarting(true);
     try {
       const { id } = await api.createMock(r.paper_id ? { paper_id: r.paper_id } : { pattern_id: r.pattern.id, fresh_only: true });
-      navigate(`/exam/${id}`);
+      navigate(mockUrl(id));
     } catch {
       setStarting(false);
     }
@@ -59,7 +61,7 @@ function ResultView({ r, aiEnabled }: { r: MockResult; aiEnabled: boolean }) {
   return (
     <div className="stack-lg">
       <section className="stack-sm">
-        <Link to="/mocks" className="muted small">← Mock tests</Link>
+        <Link to={mocksUrl(r.pattern.exam, r.pattern.stage)} className="muted small">← {r.pattern.name} mock tests</Link>
         <h1>{r.title}</h1>
         <p className="muted">{r.pattern.name} · submitted {fmtDateTime(r.submitted_at)}</p>
       </section>
@@ -81,7 +83,7 @@ function ResultView({ r, aiEnabled }: { r: MockResult; aiEnabled: boolean }) {
           <button type="button" className="btn btn-primary" disabled={starting} onClick={() => void again()}>
             {r.paper_id ? 'Retake this paper' : 'Take another mock like this'}
           </button>
-          <Link className="btn" to="/analytics">See overall progress</Link>
+          <Link className="btn" to="/progress">See overall progress</Link>
         </div>
       </section>
 
