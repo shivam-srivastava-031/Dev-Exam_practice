@@ -243,9 +243,16 @@ class Syncer:
             self.checked_at = time.monotonic()
             return True
 
-    def pull_if_stale(self) -> None:
-        """Cheap freshness check; reload only if another instance wrote in the meantime."""
-        if self.version is not None and time.monotonic() - self.checked_at < self.freshness:
+    def pull_if_stale(self, seen: int | None = None) -> None:
+        """Cheap freshness check; reload only if another instance wrote in the meantime.
+
+        `seen` is the newest version the browser has been sent. An instance behind it checks
+        Turso straight away instead of trusting its freshness window, so a page never misses
+        a change the learner made a moment ago on another instance (opening a just-created
+        mock, say).
+        """
+        behind = seen is not None and (self.version is None or seen > self.version)
+        if not behind and self.version is not None and time.monotonic() - self.checked_at < self.freshness:
             return
         with self.lock:
             remote_version = self.remote.query("SELECT v FROM _sync WHERE k = 'version'")[0]["v"]
