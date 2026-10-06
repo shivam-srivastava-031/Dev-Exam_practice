@@ -7,7 +7,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import shutil
 import sqlite3
 import threading
 from contextlib import asynccontextmanager
@@ -20,7 +19,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import ai, config, db, engine, finetune, generator, learner, mocks, persistence, rag, topic_model
+from . import ai, artifacts, config, db, engine, finetune, generator, learner, mocks, persistence, rag, topic_model
 from .catalog import EXAMS, PATTERNS, PATTERNS_BY_ID, SUBJECTS, chapter_label, pattern_summary, stage_name
 
 
@@ -37,7 +36,7 @@ def _warm_up() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db_path = Path(app.state.db_path)
-    seed_database(db_path)
+    await run_in_threadpool(prepare_data, db_path)
     conn = db.connect(db_path)
     db.init(conn)
     conn.close()
@@ -52,14 +51,10 @@ async def lifespan(app: FastAPI):
     persistence.reset()
 
 
-def seed_database(db_path: Path) -> None:
-    """Deployments ship a read-only question bank; work on a writable copy of it."""
-    if config.SEED_DB is None or db_path.exists() or not config.SEED_DB.is_file():
-        return
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    partial = db_path.with_suffix(".partial")
-    shutil.copyfile(config.SEED_DB, partial)
-    partial.replace(db_path)
+def prepare_data(db_path: Path) -> None:
+    """Deployed: stream the question bank and models from the GitHub Release into temp storage."""
+    if config.USE_BUNDLE and not db_path.exists():
+        artifacts.fetch(config.DATA_DIR, log=logging.getLogger(__name__).warning)
 
 
 app = FastAPI(title="SSC Exam Practice", lifespan=lifespan)

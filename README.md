@@ -69,11 +69,18 @@ The repo deploys as one Vercel project with two [services](https://vercel.com/do
 
 There are no service bindings: the browser calls `/api` through the public route, and the backend never calls the frontend.
 
-**Pre-trained artefacts, no training on deploy.** The backend's build step (`backend/deploy/fetch_artifacts.py`) downloads
-the question bank, int8 search vectors, the trained topic model and the embedding model (MIT-licensed
-`minishlab/potion-retrieval-32M`) from this repo's **GitHub Release** listed in `backend/deploy/release.json`, and checks
-every SHA-256. The unpacked bundle is about 325 MB of data plus about 110 MB of dependencies, under Vercel's 500 MB limit.
-Solutions are zlib-compressed inside the shipped bank. To publish new artefacts after rebuilding locally:
+**Pre-trained artefacts, no training on deploy.** The data (about 325 MB unpacked) doesn't fit in the function bundle, which
+Vercel caps at 225 MB, so it isn't bundled. Instead, at cold start the backend (`app/artifacts.py`) streams the four files of
+this repo's **GitHub Release** listed in `backend/deploy/release.json` into `/tmp`, unpacking as they download and checking
+every SHA-256:
+
+- the question bank, with solutions zlib-compressed
+- the int8 search vectors
+- the trained topic model
+- the MIT-licensed embedding model `minishlab/potion-retrieval-32M`
+
+That adds a few seconds to a cold start on Vercel's network. Warm requests are unaffected. To publish new artefacts after
+rebuilding locally:
 
 ```bash
 cd backend
@@ -127,8 +134,8 @@ Open http://127.0.0.1:8000.
 | `python -m app.rag` | Rebuild the vector index |
 | `python -m app.topic_model train` / `audit` | Retrain the classifier / list probable mislabels |
 | `python -m app.finetune --max 20000` | Export the fine-tuning dataset to `data/finetune/` |
-| `python -m pytest` | 41 tests: import, grading, practice, RAG, topic model, learner model, engine, generator, Turso sync |
-| `USE_BUNDLE=1 python -m uvicorn app.main:app` | Run exactly as deployed: from `deploy_data/` (fetch it first), DB copied to temp |
+| `python -m pytest` | 43 tests: import, grading, practice, RAG, topic model, learner model, engine, generator, Turso sync, artifact download |
+| `USE_BUNDLE=1 python -m uvicorn app.main:app` | Run exactly as deployed: downloads the release into temp storage on start |
 
 **Development:** run the backend with `--reload` and `npm run dev` in `frontend/`. Vite serves http://localhost:5173 and
 sends `/api` requests to the backend. Without a Gemini key the app still works; the AI features are hidden.
