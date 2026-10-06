@@ -8,6 +8,11 @@ subject + chapter for any question text, which powers:
   * a sanity check on AI-generated questions,
   * an audit of dataset rows whose label the model confidently disagrees with.
 
+Training uses scikit-learn, but the saved model is plain NumPy (vocabulary, idf,
+float16 weights) and inference re-implements the TfidfVectorizer + SGD
+log-loss pipeline exactly, so the deployed server needs neither scikit-learn nor
+SciPy (~160 MB lighter).
+
     python -m app.topic_model train          # fit, evaluate on a 10% hold-out, save
     python -m app.topic_model audit          # list probable mislabels
 """
@@ -15,24 +20,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sqlite3
 import threading
 import time
+import unicodedata
 from collections import Counter
 
-import joblib
 import numpy as np
 
 from . import config, db
 from .catalog import SUBJECTS, chapter_label
 
 
-
 def model_path():
-    return config.MODELS_DIR / "topic_model.joblib"
+    return config.MODELS_DIR / "topic_model.npz"
+
 
 _MARKUP = re.compile(r"\[IMAGE:[^\]]*\]|<[^>]+>|\*\*|__")
+_TOKEN = re.compile(r"(?u)\b\w\w+\b")  # scikit-learn's default token_pattern
 
 
 def model_text(question: str, options: list[str]) -> str:
@@ -59,14 +66,21 @@ def train(conn: sqlite3.Connection, log=print) -> dict:
     vectorizer = TfidfVectorizer(ngram_range=(1, 2), min_df=2, sublinear_tf=True,
                                  max_features=150_000, dtype=np.float32, strip_accents="unicode")
     x_train = vectorizer.fit_transform([t for t, te in zip(texts, test) if not te])
-    x_test = vectorizer.transform([t for t, te in zip(texts, test) if te])
     clf = SGDClassifier(loss="log_loss", alpha=1e-6, max_iter=20, tol=None, n_jobs=-1, random_state=0)
     clf.fit(x_train, labels[~test])
-    clf.coef_ = clf.coef_.astype(np.float32)  # halves the saved model; accuracy is unchanged
-    clf.intercept_ = clf.intercept_.astype(np.float32)
 
-    proba = clf.predict_proba(x_test)
-    top3 = clf.classes_[np.argsort(-proba, axis=1)[:, :3]]
+    model = {
+        "vocab": {term: int(i) for term, i in vectorizer.vocabulary_.items()},
+        "idf": vectorizer.idf_.astype(np.float32),
+        "coef": clf.coef_.astype(np.float16),  # 107 x 150k: float16 keeps it ~30 MB
+        "intercept": clf.intercept_.astype(np.float32),
+        "classes": [str(c) for c in clf.classes_],
+    }
+    # Evaluate the exported NumPy model itself, so the metrics describe what ships.
+    test_texts = [t for t, te in zip(texts, test) if te]
+    proba = _predict_proba(model, test_texts)
+    classes = np.array(model["classes"])
+    top3 = classes[np.argsort(-proba, axis=1)[:, :3]]
     pred = top3[:, 0]
     truth = labels[test]
     subj = lambda arr: np.array([a.split("/")[0] for a in arr])  # noqa: E731
@@ -75,10 +89,10 @@ def train(conn: sqlite3.Connection, log=print) -> dict:
         for s in SUBJECTS if (subj(truth) == s).any()
     }
     confusions = Counter((t, p) for t, p in zip(truth, pred) if t != p).most_common(8)
-    metrics = {
+    model["metrics"] = {
         "trained_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "seconds": round(time.perf_counter() - started, 1),
-        "train_size": int((~test).sum()), "test_size": int(test.sum()), "classes": len(clf.classes_),
+        "train_size": int((~test).sum()), "test_size": int(test.sum()), "classes": len(classes),
         "chapter_accuracy": round(float(accuracy_score(truth, pred)), 4),
         "chapter_top3_accuracy": round(float(np.mean([t in row for t, row in zip(truth, top3)])), 4),
         "chapter_macro_f1": round(float(f1_score(truth, pred, average="macro")), 4),
@@ -87,13 +101,22 @@ def train(conn: sqlite3.Connection, log=print) -> dict:
         "top_confusions": [{"true": chapter_label(t.split("/")[1]), "predicted": chapter_label(p.split("/")[1]), "count": n}
                            for (t, p), n in confusions],
     }
+    save(model)
+    m = model["metrics"]
+    log(f"Topic model: subject accuracy {m['subject_accuracy']:.1%}, chapter accuracy {m['chapter_accuracy']:.1%} "
+        f"(top-3 {m['chapter_top3_accuracy']:.1%}) on {m['test_size']:,} held-out questions; trained in {m['seconds']}s")
+    return m
+
+
+def save(model: dict) -> None:
     config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    joblib.dump({"vectorizer": vectorizer, "clf": clf, "metrics": metrics}, model_path(), compress=3)
+    vocab = sorted(model["vocab"], key=model["vocab"].get)  # position == feature index
+    np.savez_compressed(
+        model_path(), idf=model["idf"], coef=model["coef"], intercept=model["intercept"],
+        vocab=np.frombuffer("\n".join(vocab).encode(), dtype=np.uint8),
+        classes=np.frombuffer(json.dumps(model["classes"]).encode(), dtype=np.uint8),
+        metrics=np.frombuffer(json.dumps(model["metrics"]).encode(), dtype=np.uint8))
     _cache.clear()
-    log(f"Topic model: subject accuracy {metrics['subject_accuracy']:.1%}, chapter accuracy "
-        f"{metrics['chapter_accuracy']:.1%} (top-3 {metrics['chapter_top3_accuracy']:.1%}) on "
-        f"{metrics['test_size']:,} held-out questions; trained in {metrics['seconds']}s")
-    return metrics
 
 
 _cache: dict[str, dict] = {}
@@ -108,8 +131,45 @@ def load() -> dict | None:
         key = f"{path}:{path.stat().st_mtime_ns}"
         if key not in _cache:
             _cache.clear()
-            _cache[key] = joblib.load(path)
+            with np.load(path) as z:
+                vocab = z["vocab"].tobytes().decode().split("\n")
+                _cache[key] = {
+                    "vocab": {term: i for i, term in enumerate(vocab)},
+                    "idf": z["idf"], "coef": z["coef"], "intercept": z["intercept"],
+                    "classes": json.loads(z["classes"].tobytes()), "metrics": json.loads(z["metrics"].tobytes()),
+                }
         return _cache[key]
+
+
+def _strip_accents(text: str) -> str:
+    """scikit-learn's strip_accents='unicode'."""
+    if text.isascii():
+        return text
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
+def _features(model: dict, text: str) -> tuple[np.ndarray, np.ndarray]:
+    """TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True, norm='l2') for one text."""
+    tokens = _TOKEN.findall(_strip_accents(text.lower()))
+    grams = tokens + [f"{a} {b}" for a, b in zip(tokens, tokens[1:])]
+    counts = Counter(model["vocab"][g] for g in grams if g in model["vocab"])
+    if not counts:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float32)
+    idx = np.fromiter(counts, dtype=np.int64, count=len(counts))
+    tf = np.array([1 + math.log(counts[i]) for i in idx], dtype=np.float32)
+    vals = tf * model["idf"][idx]
+    return idx, vals / np.linalg.norm(vals)
+
+
+def _predict_proba(model: dict, texts: list[str]) -> np.ndarray:
+    """SGDClassifier(loss='log_loss') one-vs-rest probabilities, as predict_proba gives them."""
+    out = np.empty((len(texts), len(model["classes"])), dtype=np.float32)
+    for row, text in enumerate(texts):
+        idx, vals = _features(model, text)
+        decision = model["coef"][:, idx].astype(np.float32) @ vals + model["intercept"]
+        prob = 1 / (1 + np.exp(-decision))
+        out[row] = prob / prob.sum()
+    return out
 
 
 def predict(texts: list[str], top: int = 3) -> list[list[dict]] | None:
@@ -117,10 +177,9 @@ def predict(texts: list[str], top: int = 3) -> list[list[dict]] | None:
     model = load()
     if model is None:
         return None
-    proba = model["clf"].predict_proba(model["vectorizer"].transform(texts))
-    classes = model["clf"].classes_
+    classes = model["classes"]
     out = []
-    for row in proba:
+    for row in _predict_proba(model, texts):
         best = np.argsort(-row)[:top]
         out.append([{"subject": classes[i].split("/")[0], "chapter": classes[i].split("/", 1)[1],
                      "label": chapter_label(classes[i].split("/", 1)[1]), "probability": round(float(row[i]), 4)}

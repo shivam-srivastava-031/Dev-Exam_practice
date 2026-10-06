@@ -118,3 +118,20 @@ def test_word_search_matches_whole_words_and_last_word_prefix(client):
     assert client.get("/api/questions", params={"search": "Question cgl REA"}).json()["total"] == 3
     assert client.get("/api/questions", params={"search": "nonexistentword"}).json()["total"] == 0
     assert client.get("/api/questions", params={"search": '"); DROP'}).json()["total"] == 0
+
+
+def test_compressed_solutions_read_back_as_text(client):
+    """The deployed bank stores solutions zlib-compressed; every reader gets plain text."""
+    import zlib
+
+    from app import db
+    conn = db.connect(client.app.state.db_path)
+    with conn:
+        conn.execute("UPDATE questions SET solution = ?", (zlib.compress("Use the shortcut: 2 + 2 = 4.".encode()),))
+    qid = client.get("/api/questions").json()["items"][0]["id"]
+    assert client.post("/api/practice/answer", json={"question_id": qid, "chosen": 1}).json()["solution"] \
+        == "Use the shortcut: 2 + 2 = 4."
+    mock_id = client.post("/api/mocks", json={"paper_id": "P1"}).json()["id"]
+    client.post(f"/api/mocks/{mock_id}/submit", json={"responses": {}})
+    review = client.get(f"/api/mocks/{mock_id}/result").json()["questions"]
+    assert {q["solution"] for q in review.values()} == {"Use the shortcut: 2 + 2 = 4."}

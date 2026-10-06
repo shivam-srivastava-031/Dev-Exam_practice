@@ -36,7 +36,7 @@ _CLEAN = re.compile(r"<[^>]+>")
 
 def _example(r: sqlite3.Row) -> dict | None:
     options = json.loads(r["options"])
-    solution = _CLEAN.sub("", r["solution"] or "").strip()
+    solution = _CLEAN.sub("", db.text(r["solution"]) or "").strip()
     if _FIGURE.search(r["question"]) or any(_FIGURE.search(o) for o in options) or _FIGURE.search(solution):
         return None
     if not 80 <= len(solution) <= 4000:

@@ -49,7 +49,7 @@ def test_similar_and_ranked_practice_modes(indexed):
 def test_topic_model_trains_predicts_and_audits(client):
     metrics = topic_model.train(_conn(client), log=lambda *_: None)
     assert metrics["train_size"] + metrics["test_size"] == 21
-    assert (config.MODELS_DIR / "topic_model.joblib").is_file()
+    assert (config.MODELS_DIR / "topic_model.npz").is_file()  # plain NumPy, no scikit-learn at runtime
     guess = client.post("/api/lab/classify", json={"text": "Question cgl-ENG-1?"}).json()
     assert len(guess["predictions"]) >= 1 and 0 < guess["predictions"][0]["probability"] <= 1
     assert isinstance(topic_model.audit(_conn(client)), list)

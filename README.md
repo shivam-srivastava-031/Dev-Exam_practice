@@ -58,7 +58,44 @@ the importer clones it for you.
 Previous-year papers keep their own per-question marks from the dataset. Patterns live in
 [backend/app/catalog.py](backend/app/catalog.py) if SSC changes them.
 
-## Setup
+## Deploy on Vercel
+
+The repo deploys as one Vercel project with two [services](https://vercel.com/docs/services) (`vercel.json`):
+
+| Service | Root | Public path | What it is |
+|---|---|---|---|
+| `frontend` | `frontend/` | everything except `/api/*` | the Vite React app, served from the CDN (deep links fall back to `index.html`) |
+| `backend` | `backend/` | `/api/*` | the FastAPI app as one Python function |
+
+There are no service bindings: the browser calls `/api` through the public route, and the backend never calls the frontend.
+
+**Pre-trained artefacts, no training on deploy.** The backend's build step (`backend/deploy/fetch_artifacts.py`) downloads
+the question bank, int8 search vectors, the trained topic model and the embedding model (MIT-licensed
+`minishlab/potion-retrieval-32M`) from this repo's **GitHub Release** listed in `backend/deploy/release.json`, and checks
+every SHA-256. The unpacked bundle is about 325 MB of data plus about 110 MB of dependencies, under Vercel's 500 MB limit.
+Solutions are zlib-compressed inside the shipped bank. To publish new artefacts after rebuilding locally:
+
+```bash
+cd backend
+python deploy/package_release.py --tag data-v2      # writes ../release/* and deploy/release.json
+gh release create data-v2 ../release/* --title "Question bank and models v2"
+```
+
+**Your progress** (answers, bookmarks, mocks, learner model, reviews, generated questions) is kept in a
+[Turso](https://turso.tech) database, because Vercel's disk is temporary. The app copies the bank to `/tmp` at cold start
+(about 3 s), pulls your progress, and pushes every change back. The app is **single-user**: anyone with the URL shares the
+same progress and uses your Gemini key.
+
+One-time setup in the Vercel dashboard:
+
+1. **Add New → Project →** import `shivam-srivastava-031/Dev-Exam_practice`. Vercel reads `vercel.json`.
+2. **Storage → Create Database → Turso** (Marketplace), pick the **Mumbai** region, and connect it to the project. This sets
+   `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Alternatively, create a database at turso.tech and add both variables yourself.
+3. **Settings → Environment Variables:** add `GEMINI_API_KEY`.
+4. **Settings → Functions → Region:** Mumbai (`bom1`), next to the database.
+5. Deploy. Later pushes to `main` redeploy automatically.
+
+## Local setup
 
 Requires Python 3.11+, Node 20.19+ and git.
 
@@ -66,8 +103,8 @@ Requires Python 3.11+, Node 20.19+ and git.
 # 1. Backend
 cd backend
 python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt    # macOS/Linux: .venv/bin/pip
-cp .env.example .env                              # then put your Gemini key in .env
+.venv/Scripts/pip install -r requirements-dev.txt    # macOS/Linux: .venv/bin/pip; runtime-only deps: requirements.txt
+cp .env.example .env                                  # then put your Gemini key in .env
 
 # 2. Build everything: clone the dataset, import questions, build the RAG index, train the topic model (about 3 min)
 .venv/Scripts/python -m app.importer
@@ -90,7 +127,8 @@ Open http://127.0.0.1:8000.
 | `python -m app.rag` | Rebuild the vector index |
 | `python -m app.topic_model train` / `audit` | Retrain the classifier / list probable mislabels |
 | `python -m app.finetune --max 20000` | Export the fine-tuning dataset to `data/finetune/` |
-| `python -m pytest` | 34 tests: import, grading, practice, RAG, topic model, learner model, engine, generator |
+| `python -m pytest` | 41 tests: import, grading, practice, RAG, topic model, learner model, engine, generator, Turso sync |
+| `USE_BUNDLE=1 python -m uvicorn app.main:app` | Run exactly as deployed: from `deploy_data/` (fetch it first), DB copied to temp |
 
 **Development:** run the backend with `--reload` and `npm run dev` in `frontend/`. Vite serves http://localhost:5173 and
 sends `/api` requests to the backend. Without a Gemini key the app still works; the AI features are hidden.

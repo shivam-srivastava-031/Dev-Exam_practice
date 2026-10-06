@@ -5,18 +5,22 @@ Run with:  uvicorn app.main:app --reload   (from backend/)
 from __future__ import annotations
 
 import json
+import logging
 import re
+import shutil
 import sqlite3
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, AsyncIterator, Callable, Iterator, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import ai, config, db, engine, finetune, generator, learner, mocks, rag, topic_model
+from . import ai, config, db, engine, finetune, generator, learner, mocks, persistence, rag, topic_model
 from .catalog import EXAMS, PATTERNS, PATTERNS_BY_ID, SUBJECTS, chapter_label, pattern_summary, stage_name
 
 
@@ -32,15 +36,53 @@ def _warm_up() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    conn = db.connect(app.state.db_path)
+    db_path = Path(app.state.db_path)
+    seed_database(db_path)
+    conn = db.connect(db_path)
     db.init(conn)
     conn.close()
+    if config.TURSO_URL:
+        syncer = persistence.configure(persistence.remote_from_config(), db_path)
+        await run_in_threadpool(syncer.pull)
+    elif config.ON_VERCEL:
+        logging.getLogger(__name__).warning(
+            "TURSO_DATABASE_URL is not set: progress lives in /tmp and is lost when this instance stops")
     threading.Thread(target=_warm_up, daemon=True).start()
     yield
+    persistence.reset()
+
+
+def seed_database(db_path: Path) -> None:
+    """Deployments ship a read-only question bank; work on a writable copy of it."""
+    if config.SEED_DB is None or db_path.exists() or not config.SEED_DB.is_file():
+        return
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    partial = db_path.with_suffix(".partial")
+    shutil.copyfile(config.SEED_DB, partial)
+    partial.replace(db_path)
 
 
 app = FastAPI(title="SSC Exam Practice", lifespan=lifespan)
 app.state.db_path = config.DB_PATH
+
+
+@app.middleware("http")
+async def sync_progress(request: Request, call_next):
+    """With Turso configured: refresh before an API request, save after a change."""
+    syncer = persistence.get()
+    if syncer is None or not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    try:
+        await run_in_threadpool(syncer.pull_if_stale)
+    except (persistence.TursoError, httpx.HTTPError) as e:
+        return JSONResponse({"detail": f"Could not reach the progress database: {e}"}, status_code=503)
+    response = await call_next(request)
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and response.status_code < 400:
+        try:
+            await run_in_threadpool(syncer.push)
+        except (persistence.TursoError, httpx.HTTPError) as e:
+            return JSONResponse({"detail": f"Your change was made but could not be saved: {e}"}, status_code=503)
+    return response
 
 
 def get_conn(request: Request) -> Iterator[sqlite3.Connection]:
@@ -286,7 +328,7 @@ def practice_answer(body: AnswerIn, conn: Conn) -> dict:
                 "VALUES (?, ?, ?, ?, 'practice', ?)",
                 (body.question_id, body.chosen, int(is_correct), body.time_ms, predicted))
         _retrain_if_due(conn)
-    return {"answer": row["answer"], "solution": row["solution"], "is_correct": is_correct,
+    return {"answer": row["answer"], "solution": db.text(row["solution"]), "is_correct": is_correct,
             "predicted": None if predicted is None else round(predicted, 3)}
 
 
@@ -306,6 +348,7 @@ def _retrain_if_due(conn: sqlite3.Connection) -> None:
             c = db.connect(db_path)
             learner.retrain(c)
             c.close()
+            persistence.push_quietly()
         finally:
             _retrain_lock.release()
     threading.Thread(target=run, daemon=True).start()
@@ -430,7 +473,7 @@ def mock_result(mock_id: str, conn: Conn) -> dict:
         SELECT q.*, p.title AS paper_title,
                EXISTS (SELECT 1 FROM bookmarks b WHERE b.question_id = q.id) AS bookmarked
         FROM questions q JOIN papers p ON p.id = q.paper_id WHERE q.id IN ({_in(ids)})""", ids).fetchall()
-    questions = {r["id"]: {**public_question(r), "answer": r["answer"], "solution": r["solution"],
+    questions = {r["id"]: {**public_question(r), "answer": r["answer"], "solution": db.text(r["solution"]),
                            "paper_title": r["paper_title"], "bookmarked": bool(r["bookmarked"])} for r in rows}
     return {
         "id": m["id"], "title": m["title"], "kind": m["kind"], "pattern": _pattern_info(m["pattern_id"]),
@@ -525,7 +568,7 @@ def ai_explain(body: ExplainIn, conn: Conn) -> StreamingResponse:
     row = conn.execute("SELECT * FROM questions WHERE id = ?", (body.question_id,)).fetchone()
     if row is None:
         raise HTTPException(404, "question not found")
-    q = {**dict(row), "options": json.loads(row["options"])}
+    q = {**dict(row), "options": json.loads(row["options"]), "solution": db.text(row["solution"])}
     q["related"] = _sources(conn, [h["id"] for h in rag.similar(conn, row["id"], 3)]) if rag.get_index() else []
     chosen = body.chosen if body.chosen is not None and 0 <= body.chosen < len(q["options"]) else None
     return _stream(ai.explain(q, chosen, [m.model_dump() for m in body.messages]))
@@ -546,7 +589,7 @@ def _sources(conn: sqlite3.Connection, ids: list[int]) -> list[dict]:
         options = json.loads(r["options"])
         out.append({"n": len(out) + 1, "id": qid, "source": r["paper_title"], "question": r["question"],
                     "options": options, "answer": r["answer"], "answer_text": options[r["answer"]],
-                    "solution": r["solution"]})
+                    "solution": db.text(r["solution"])})
     return out
 
 
@@ -582,6 +625,7 @@ def ai_mock_review(mock_id: str, conn: Conn, refresh: bool = False):
         with c:
             c.execute("UPDATE mocks SET ai_review = ? WHERE id = ?", (text, mock_id))
         c.close()
+        persistence.push_quietly()  # streamed responses finish after the sync middleware ran
 
     return _stream(ai.review_mock(m["title"], minutes, m["elapsed_sec"], result, chapters), on_done=save)
 
@@ -706,6 +750,7 @@ def lab(conn: Conn) -> dict:
         "finetune": finetune.status(),
         "ai_questions": conn.execute("SELECT COUNT(*) FROM questions WHERE origin = 'ai'").fetchone()[0],
         "gemini": {"enabled": ai.enabled(), "models": config.GEMINI_MODELS},
+        "storage": "turso" if persistence.get() else ("ephemeral" if config.ON_VERCEL else "local"),
     }
 
 

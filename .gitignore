@@ -13,6 +13,10 @@ data/source/
 data/index/
 data/models/
 data/finetune/
+
+# Release assets (uploaded to GitHub Releases) and what the deploy build unpacks
+release/
+backend/deploy_data/
 backend/exam.db
 backend/exam.db-*
 
