@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type {
   AnswerResult, CurrentAffairs, GenerateReport, LabStatus, LearnerOverview, Meta, Mock, MockResult, MockSummary, Paper,
-  Pattern, PracticeQuestion, QuestionPage, SearchResponse, Stats, TopicGuess, TrainingReport,
+  Pattern, PracticeQuestion, QuestionPage, SearchResponse, Stats, TopicGuess, TopicIndex, TrainingReport,
 } from './types';
 
 // The newest progress version any response has carried. The live site runs on several server
@@ -83,6 +83,7 @@ export interface QuestionFilters {
   stage?: string;
   subject?: string;
   chapter?: string;
+  concept?: string;
   year?: string;
   paper?: string;
   status?: string;
@@ -106,6 +107,8 @@ export const api = {
     request<QuestionPage>(`/api/questions?${query({ ...f })}`),
   answer: (question_id: number, chosen: number | null, time_ms?: number) =>
     post<AnswerResult>('/api/practice/answer', { question_id, chosen, time_ms }),
+  /** Every subject's topics and sub-topics with PYQ counts and your progress, optionally for one exam. */
+  topics: (exam?: string, stage?: string) => request<TopicIndex>(`/api/topics?${query({ exam, stage })}`),
   toggleBookmark: (id: number) => post<{ bookmarked: boolean }>(`/api/bookmarks/${id}`),
   patterns: () => request<Pattern[]>('/api/patterns'),
   papers: (exam: string, stage?: string) => request<Paper[]>(`/api/papers?${query({ exam, stage })}`),

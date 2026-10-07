@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { api, useAsync, useMeta } from '../api';
 import { fmtDateTime, fmtNum, fmtPct, fmtScore } from '../lib/format';
-import { currentAffairsUrl, mockUrl, mocksUrl, practiceUrl, resultUrl, setPageTitle, smartUrl } from '../lib/urls';
+import { currentAffairsUrl, mockUrl, mocksUrl, practiceUrl, resultUrl, setPageTitle, smartUrl, topicsUrl } from '../lib/urls';
 
 const SUBJECT_BLURB: Record<string, string> = {
   REAS: 'Series, analogy, coding-decoding, puzzles, non-verbal',
@@ -68,7 +68,10 @@ export default function Dashboard() {
       )}
 
       <section className="stack">
-        <h2>Practise by subject</h2>
+        <div className="row between wrap gap">
+          <h2>Practise by subject</h2>
+          <Link to={topicsUrl()}>Topic-wise PYQs →</Link>
+        </div>
         <div className="grid-cards">
           {meta.subjects.filter((s) => s.count > 0).map((s) => (
             <Link key={s.code} to={practiceUrl({ subject: s.code })} className="card card-link">

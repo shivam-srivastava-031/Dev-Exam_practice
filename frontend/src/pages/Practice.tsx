@@ -4,10 +4,10 @@ import { api, useMeta, type QuestionFilters } from '../api';
 import { AiTutor } from '../components/AiTutor';
 import { Markup } from '../components/Markup';
 import { OptionList } from '../components/OptionList';
-import { fmtDate, fmtNum, fmtPct } from '../lib/format';
+import { SUBJECT_SHORT, fmtDate, fmtNum, fmtPct } from '../lib/format';
 import {
   EXAM_NAMES, SHOW_TO_STATUS, SUBJECT_NAMES, currentAffairsUrl, examCode, practiceUrl, questionUrl, roughLabel, searchUrl,
-  setPageTitle, similarUrl, subjectCode, type PracticeTarget,
+  setPageTitle, similarUrl, subjectCode, topicsUrl, type PracticeTarget,
 } from '../lib/urls';
 import type { AnswerResult, PracticeQuestion } from '../types';
 
@@ -34,6 +34,7 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
   const target: PracticeTarget = useMemo(() => ({
     subject: subjectCode(params.subject),
     chapter: params.chapter,
+    concept: params.concept,
     exam: examCode(query.get('exam')),
     stage: query.get('stage') ?? undefined,
     year: query.get('year') ?? undefined,
@@ -41,7 +42,7 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
     order: query.get('order') === 'in-order' ? 'sequential' : undefined,
     search: query.get('search') ?? undefined,
     about: query.get('about') ?? undefined,
-  }), [params.subject, params.chapter, query]);
+  }), [params.subject, params.chapter, params.concept, query]);
 
   // ...and what the API is asked for.
   const filters: QuestionFilters = useMemo(() => {
@@ -53,7 +54,8 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
       case 'smart': return { subject: target.subject };
       case 'news': return {}; // the day's quiz comes from its own endpoint (see load)
       default: return {
-        exam: target.exam, stage: target.stage, subject: target.subject, chapter: target.chapter, year: target.year,
+        exam: target.exam, stage: target.stage, subject: target.subject, chapter: target.chapter, concept: target.concept,
+        year: target.year,
         status: target.status, order: target.order, search: target.search, semantic: target.about,
       };
     }
@@ -192,11 +194,16 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
   const chapterName = target.chapter
     ? meta?.chapters.find((c) => c.subject === target.subject && c.chapter === target.chapter)?.label ?? roughLabel(target.chapter)
     : undefined;
+  const concepts = meta?.concepts.filter((c) => c.subject === target.subject && c.chapter === target.chapter)
+    ?? (target.concept ? [{ concept: target.concept, label: roughLabel(target.concept), n: 0 }] : []);
+  const conceptName = target.concept
+    ? concepts.find((c) => c.concept === target.concept)?.label ?? roughLabel(target.concept)
+    : undefined;
   const examName = target.exam ? EXAM_NAMES[target.exam] : undefined;
 
   useEffect(() => {
     const titles: Record<PracticeMode, string | undefined> = {
-      filter: [chapterName, target.subject ? `${subjectName(target.subject)} practice` : 'Practice', examName]
+      filter: [conceptName, chapterName, target.subject ? `${subjectName(target.subject)} practice` : 'Practice', examName]
         .filter(Boolean).join(' · '),
       smart: 'Smart practice',
       ai: 'AI-generated questions',
@@ -218,6 +225,7 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
   function setFilter(changes: Partial<PracticeTarget>) {
     const next = { ...target, ...changes };
     if ('subject' in changes) next.chapter = undefined;
+    if ('subject' in changes || 'chapter' in changes) next.concept = undefined;
     if ('exam' in changes) next.stage = undefined;
     navigate(practiceUrl(next));
   }
@@ -275,6 +283,11 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
           <Select label="Topic" value={target.chapter} onChange={(v) => setFilter({ chapter: v || undefined })} disabled={!target.subject}
             options={[['', target.subject ? 'All topics' : 'Pick a subject first'],
               ...chapters.map((c) => [c.chapter, c.n ? `${c.label} (${fmtNum(c.n)})` : c.label] as [string, string])]} />
+          {target.chapter && concepts.length > 0 && (
+            <Select label="Sub-topic" value={target.concept} onChange={(v) => setFilter({ concept: v || undefined })}
+              options={[['', 'All sub-topics'],
+                ...concepts.map((c) => [c.concept, c.n ? `${c.label} (${fmtNum(c.n)})` : c.label] as [string, string])]} />
+          )}
           <Select label="Year" value={target.year} onChange={(v) => setFilter({ year: v || undefined })}
             options={[['', 'Any year'], ...years.map((y) => [y, y] as [string, string])]} />
           <Select label="Show" value={target.status} onChange={(v) => setFilter({ status: v || undefined })}
@@ -295,6 +308,10 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
           <span className="muted">
             {loading ? 'Loading questions…' : mode === 'smart' ? 'Adapts after every answer'
               : `${fmtNum(total)} ${mode === 'news' ? '' : 'matching '}question${total === 1 ? '' : 's'}`}
+            {showFilters && target.subject && (
+              <> · <Link to={topicsUrl(target.subject, target.exam, target.stage)}>
+                All {SUBJECT_SHORT[target.subject] ?? subjectName(target.subject)} topics</Link></>
+            )}
           </span>
           {session.length > 0 && (
             <span className="session-tally">
@@ -320,6 +337,11 @@ export default function Practice({ mode = 'filter' }: { mode?: PracticeMode }) {
               <span className="q-num">{single ? `#${q.id}` : `Q ${idx + 1}${total && mode !== 'smart' ? ` of ${fmtNum(total)}` : ''}`}</span>
               <Link className="pill" to={practiceUrl({ subject: q.subject })}>{subjectName(q.subject)}</Link>
               {q.chapter && <Link className="pill pill-soft" to={practiceUrl({ subject: q.subject, chapter: q.chapter })}>{q.chapter_label}</Link>}
+              {q.chapter && q.concept && (
+                <Link className="pill pill-soft" to={practiceUrl({ subject: q.subject, chapter: q.chapter, concept: q.concept })}>
+                  {q.concept_label}
+                </Link>
+              )}
               {q.last_correct === false && !answered && <span className="pill pill-bad">Wrong last time</span>}
               {q.origin === 'ai' && <span className="pill pill-ai">AI-generated</span>}
             </div>

@@ -456,6 +456,38 @@ a.pill:hover { text-decoration: none; filter: brightness(0.97); }
 .coach { display: flex; flex-direction: column; gap: 12px; }
 .coach-text { border-top: 1px solid var(--border); padding-top: 12px; }
 
+/* ------------------------------------------------------------------ topic-wise PYQs */
+.topics-head { align-items: flex-end; }
+.tab-count { margin-left: 7px; font-weight: 500; font-size: 0.85em; opacity: 0.75; font-variant-numeric: tabular-nums; }
+.subject-card { display: flex; flex-direction: column; gap: 16px; }
+.topic-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.topic-tools input[type="search"] { width: 250px; max-width: 100%; }
+.topic-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.topic-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; align-items: center; padding: 14px 18px; }
+.topic-main { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.topic-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.topic-title { font-weight: 650; font-size: 1.02rem; color: var(--text); }
+.topic-title:hover { color: var(--primary); }
+.topic-actions { display: flex; gap: 6px; }
+.topic-more { grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 9px; }
+.topic-more > summary { cursor: pointer; font-size: 0.88rem; font-weight: 600; color: var(--text-2); }
+.topic-more-body { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+.topic-more-body .chips { margin-bottom: 2px; }
+.topic-more-body .subtopic-list + .field-label { margin-top: 6px; }
+.subtopic-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; }
+.subtopic {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  padding: 7px 11px; border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--text); font-size: 0.9rem;
+}
+.subtopic:hover { background: var(--primary-soft); text-decoration: none; }
+.subtopic.is-match { outline: 1.5px solid var(--primary); outline-offset: -1.5px; }
+.subtopic-n { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 600px) {
+  .topic-row { grid-template-columns: minmax(0, 1fr); }
+  .topic-tools, .topic-tools input[type="search"] { width: 100%; }
+}
+
 /* ------------------------------------------------------------------ mocks */
 .pattern-card { display: flex; flex-direction: column; gap: 14px; }
 .summary-nums { display: flex; gap: 18px; color: var(--text-2); }

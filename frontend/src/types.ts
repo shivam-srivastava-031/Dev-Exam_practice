@@ -19,10 +19,20 @@ export interface ChapterMeta {
   n: number;
 }
 
+export interface ConceptMeta {
+  subject: string;
+  chapter: string;
+  concept: string;
+  label: string;
+  n: number;
+}
+
 export interface Meta {
   exams: ExamMeta[];
   subjects: { code: string; name: string; count: number }[];
   chapters: ChapterMeta[];
+  /** Sub-topics, most-asked first within each topic. */
+  concepts: ConceptMeta[];
   years: number[];
   total_questions: number;
   total_papers: number;
@@ -37,6 +47,9 @@ export interface Question {
   subject: string;
   chapter: string | null;
   chapter_label: string;
+  /** Sub-topic within the chapter, when the dataset tags one. */
+  concept: string | null;
+  concept_label: string | null;
   year: number | null;
   question: string;
   options: string[];
@@ -212,6 +225,41 @@ export interface Stats {
   weak_chapters: { subject: string; subject_name: string; chapter: string; label: string; attempts: number; correct: number }[];
   activity: { day: string; attempts: number; correct: number }[];
   mocks: { id: string; title: string; kind: string; pattern_id: string; submitted_at: string; score: number; max_score: number; exam: string }[];
+}
+
+/** Your practice in a subject, topic or sub-topic (previous-year questions only). */
+export interface TopicProgress {
+  /** Questions answered at least once. */
+  done: number;
+  attempts: number;
+  correct: number;
+  /** Questions whose latest answer was wrong. */
+  wrong: number;
+}
+
+export interface TopicEntry extends TopicProgress {
+  chapter: string;
+  label: string;
+  n: number;
+  /** Average questions from this topic in a paper that has the subject. */
+  per_paper: number;
+  /** PYQs per year, aligned with TopicIndex.years. */
+  years: number[];
+  concepts: { concept: string; label: string; n: number; done: number }[];
+}
+
+export interface SubjectTopics extends TopicProgress {
+  code: string;
+  name: string;
+  n: number;
+  papers: number;
+  /** Most-asked first. */
+  topics: TopicEntry[];
+}
+
+export interface TopicIndex {
+  years: number[];
+  subjects: SubjectTopics[];
 }
 
 export interface TopicGuess {

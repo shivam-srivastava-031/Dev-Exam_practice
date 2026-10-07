@@ -30,6 +30,10 @@ the importer clones it for you.
 
 - **Practise** by exam, stage, subject, one of 107 topics, year, or "got wrong last time" / "not attempted" / "bookmarked".
   You get the answer, the full solution and the model's forecast straight away. Keys `1`–`4` answer, `←`/`→` move.
+- **Topic-wise PYQs** (`/topics`): every subject's topics, most asked first, with how many PYQs each has, how many
+  come per paper on average, the year-wise split and the dataset's 630+ sub-topics. Each shows how much of it you have
+  done, your accuracy and what to retry; filter by exam and stage, find a topic or sub-topic by name, or sort by your
+  weakest. Every topic, sub-topic and year opens as practice.
 - **Smart practice** (`/practice?mode=smart`): questions chosen by the adaptive engine, each with its reason.
 - **Search** by meaning or keyword, or paste a whole question to find its twins and its topic. **Ask AI** answers from the
   retrieved PYQs, and the cited numbers jump to the questions.
@@ -55,6 +59,8 @@ Every page and state has a readable, shareable URL. Refresh, Back and Forward ke
 | URL | Page |
 |---|---|
 | `/practice`, `/practice/quant`, `/practice/quant/profit-and-loss` | practice: everything, a subject, a topic |
+| `/practice/quant/profit-and-loss/successive-discount` | practice one sub-topic |
+| `/topics`, `/topics/quant?exam=ssc-cgl&stage=mains` | topic-wise PYQs for a subject, optionally for one exam |
 | `…?exam=ssc-cgl&stage=mains&year=2023&show=wrong&order=in-order&q=17264` | filters, plus the question on screen |
 | `/practice/smart`, `/practice/ai` | smart practice, AI-generated questions |
 | `/practice/paper/ssc-cgl-2023-07-18-shift-4` | one previous-year paper, untimed |

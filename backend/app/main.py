@@ -105,11 +105,18 @@ def _in(ids: list[int]) -> str:
     return ",".join("?" * len(ids))
 
 
+def sub_topic(concept: str | None) -> str | None:
+    """The dataset's concept tag, or None for its placeholders ('_undefined')."""
+    return None if not concept or concept.startswith("_") else concept
+
+
 def public_question(r: sqlite3.Row) -> dict:
     """A question as the learner sees it before answering: no key, no solution."""
+    concept = sub_topic(r["concept"])
     return {
         "id": r["id"], "exam": r["exam"], "stage": r["stage"], "subject": r["subject"],
-        "chapter": r["chapter"], "chapter_label": chapter_label(r["chapter"]), "year": r["year"],
+        "chapter": r["chapter"], "chapter_label": chapter_label(r["chapter"]),
+        "concept": concept, "concept_label": chapter_label(concept) if concept else None, "year": r["year"],
         "question": r["question"], "options": json.loads(r["options"]),
     }
 
@@ -151,15 +158,43 @@ def _build_meta(conn: sqlite3.Connection) -> dict:
             "SELECT subject, chapter, COUNT(*) n FROM questions WHERE chapter IS NOT NULL AND origin = 'pyq' "
             "GROUP BY 1, 2 ORDER BY 1, 3 DESC")
     ]
+    concept_n: dict[tuple, int] = {}
+    for _, _, subject, chapter, concept, _, n in _bank_counts(conn)["cells"]:
+        if chapter and sub_topic(concept):
+            concept_n[subject, chapter, concept] = concept_n.get((subject, chapter, concept), 0) + n
+    concepts = [{"subject": s, "chapter": ch, "concept": c, "label": chapter_label(c), "n": n}
+                for (s, ch, c), n in sorted(concept_n.items(), key=lambda kv: (kv[0][0], kv[0][1], -kv[1], kv[0][2]))]
     return {
         "exams": exams,
         "subjects": [{"code": c, "name": n, "count": subject_totals[c]} for c, n in SUBJECTS.items()],
         "chapters": chapters,
+        "concepts": concepts,
         "years": [r[0] for r in conn.execute("SELECT DISTINCT year FROM questions WHERE year IS NOT NULL ORDER BY 1 DESC")],
         "total_questions": sum(r["n"] for r in counts),
         "total_papers": sum(papers.values()),
         "ai_questions": conn.execute("SELECT COUNT(*) FROM questions WHERE origin = 'ai'").fetchone()[0],
     }
+
+
+_bank_cache: dict[tuple, dict] = {}
+
+
+def _bank_counts(conn: sqlite3.Connection) -> dict:
+    """PYQ counts by exam, stage, subject, chapter, concept and year, and how many papers carry each
+    subject. One pass over the bank, shared by the catalogue and every exam filter of the topic index;
+    redone only when a re-import changes the bank."""
+    stamp = (str(app.state.db_path), *conn.execute("SELECT COUNT(*), MAX(id) FROM questions").fetchone())
+    if stamp not in _bank_cache:
+        _bank_cache.clear()
+        _bank_cache[stamp] = {
+            "cells": conn.execute("SELECT exam, stage, subject, chapter, concept, year, COUNT(*) FROM questions "
+                                  "WHERE origin = 'pyq' GROUP BY 1, 2, 3, 4, 5, 6").fetchall(),
+            "papers": conn.execute(
+                "SELECT p.exam, p.stage, s.subject, COUNT(*) FROM (SELECT DISTINCT paper_id, subject FROM questions) s "
+                "JOIN papers p ON p.id = s.paper_id WHERE p.id NOT LIKE 'ai-%' GROUP BY 1, 2, 3").fetchall(),
+            "topics": {},  # (exam, stage) -> topic index without progress, built on first request
+        }
+    return _bank_cache[stamp]
 
 
 @app.get("/api/patterns")
@@ -277,6 +312,7 @@ def list_questions(
     stage: str | None = None,
     subject: str | None = None,
     chapter: str | None = None,
+    concept: str | None = None,
     year: int | None = None,
     paper: str | None = None,
     status: Literal["all", "unattempted", "attempted", "incorrect", "bookmarked"] = "all",
@@ -315,7 +351,8 @@ def list_questions(
     if origin != "all":
         where.append("q.origin = :origin")
         params["origin"] = origin
-    for col, val in (("exam", exam), ("stage", stage), ("subject", subject), ("chapter", chapter), ("paper_id", paper)):
+    for col, val in (("exam", exam), ("stage", stage), ("subject", subject), ("chapter", chapter), ("concept", concept),
+                     ("paper_id", paper)):
         if val:
             where.append(f"q.{col} = :{col}")
             params[col] = val
@@ -401,6 +438,97 @@ def toggle_bookmark(question_id: int, conn: Conn) -> dict:
             raise HTTPException(404, "question not found")
         conn.execute("INSERT INTO bookmarks (question_id) VALUES (?)", (question_id,))
     return {"bookmarked": True}
+
+
+# --------------------------------------------------------------------------- topic-wise PYQs
+
+_NO_PROGRESS = {"done": 0, "attempts": 0, "correct": 0, "wrong": 0}
+
+
+@app.get("/api/topics")
+def topics(conn: Conn, exam: str | None = None, stage: Literal["pre", "mains"] | None = None) -> dict:
+    """Every subject's topics and sub-topics: how many PYQs each has, how often it is asked per paper
+    and per year, and how much of it you have practised. Limited to one exam (and stage) when given.
+
+    Progress per topic: `done` questions answered at least once, `attempts` and `correct` over all
+    answers, `wrong` questions whose latest answer was wrong (what "show=wrong" practises).
+    """
+    if exam and exam not in EXAMS:
+        raise HTTPException(422, "unknown exam")
+    bank = _bank_counts(conn)
+    if (exam, stage) not in bank["topics"]:
+        bank["topics"][exam, stage] = _build_topics(bank, exam, stage)
+    index = bank["topics"][exam, stage]
+
+    where, params = ["q.origin = 'pyq'"], []
+    for col, val in (("exam", exam), ("stage", stage)):
+        if val:
+            where.append(f"q.{col} = ?")
+            params.append(val)
+    progress: dict[tuple, dict] = {}
+    for r in conn.execute(f"""
+            SELECT q.subject, q.chapter, q.concept, COUNT(*) done, SUM(l.attempts) attempts, SUM(l.correct) correct,
+                   SUM(1 - a.is_correct) wrong
+            FROM (SELECT question_id, COUNT(*) attempts, SUM(is_correct) correct, MAX(id) last_id
+                  FROM attempts GROUP BY question_id) l
+            JOIN questions q ON q.id = l.question_id JOIN attempts a ON a.id = l.last_id
+            WHERE {" AND ".join(where)} GROUP BY 1, 2, 3""", params):
+        # Roll each (subject, chapter, concept) row up into its chapter and subject.
+        for key in ((r["subject"],), (r["subject"], r["chapter"]), (r["subject"], r["chapter"], sub_topic(r["concept"]))):
+            p = progress.setdefault(key, dict(_NO_PROGRESS))
+            for k in _NO_PROGRESS:
+                p[k] += r[k]
+
+    def mine(*key: str) -> dict:
+        return progress.get(key, _NO_PROGRESS)
+
+    return {**index, "subjects": [
+        {**s, **mine(s["code"]), "topics": [
+            {**t, **mine(s["code"], t["chapter"]), "concepts": [
+                {**c, "done": mine(s["code"], t["chapter"], c["concept"])["done"]} for c in t["concepts"]]}
+            for t in s["topics"]]}
+        for s in index["subjects"]]}
+
+
+def _build_topics(bank: dict, exam: str | None, stage: str | None) -> dict:
+    def in_scope(e: str, s: str) -> bool:
+        return exam in (None, e) and stage in (None, s)
+
+    papers: dict[str, int] = {}
+    for e, s, subject, n in bank["papers"]:
+        if in_scope(e, s):
+            papers[subject] = papers.get(subject, 0) + n
+    totals: dict[str, int] = {}
+    by_year: dict[tuple, dict] = {}    # (subject, chapter) -> {year: n}
+    concept_n: dict[tuple, int] = {}   # (subject, chapter, concept) -> n
+    for e, s, subject, chapter, concept, year, n in bank["cells"]:
+        if not in_scope(e, s):
+            continue
+        totals[subject] = totals.get(subject, 0) + n
+        if chapter:
+            counts = by_year.setdefault((subject, chapter), {})
+            counts[year] = counts.get(year, 0) + n
+            if sub_topic(concept):
+                concept_n[subject, chapter, concept] = concept_n.get((subject, chapter, concept), 0) + n
+    years = sorted({y for counts in by_year.values() for y in counts if y})
+    concepts: dict[tuple, list] = {}
+    for (subject, chapter, concept), n in sorted(concept_n.items(), key=lambda kv: (-kv[1], kv[0])):
+        concepts.setdefault((subject, chapter), []).append({"concept": concept, "label": chapter_label(concept), "n": n})
+
+    out = []
+    for code, name in SUBJECTS.items():
+        if code not in totals:
+            continue
+        per = max(papers.get(code, 0), 1)
+        topics = sorted((
+            {"chapter": chapter, "label": chapter_label(chapter), "n": sum(counts.values()),
+             # Average questions from this topic in a paper that has this subject.
+             "per_paper": round(sum(counts.values()) / per, 2),
+             "years": [counts.get(y, 0) for y in years],
+             "concepts": concepts.get((code, chapter), [])}
+            for (subject, chapter), counts in by_year.items() if subject == code), key=lambda t: (-t["n"], t["label"]))
+        out.append({"code": code, "name": name, "n": totals[code], "papers": papers.get(code, 0), "topics": topics})
+    return {"years": years, "subjects": out}
 
 
 # --------------------------------------------------------------------------- mock tests

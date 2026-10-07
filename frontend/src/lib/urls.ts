@@ -3,12 +3,14 @@
 //   /practice                         all questions
 //   /practice/quant                   a subject
 //   /practice/quant/profit-and-loss   subject + topic
+//   /practice/quant/profit-and-loss/successive-discount   subject + topic + sub-topic
 //   /practice/smart | /practice/ai    smart practice | AI-generated questions
 //   /practice/paper/<paper-slug>      one previous-year paper, untimed
 //   /practice/similar/<question-id>   questions like that one
 //   /practice/news/2026-10-06         that day's current-affairs quiz
 //   /question/<id>                    one question, shareable
 //   ?exam=ssc-cgl&stage=mains&year=2023&show=wrong&order=in-order&search=...&q=<current question id>
+//   /topics[/quant]                   topic-wise PYQs for a subject; ?exam=ssc-cgl&stage=mains
 //   /mocks/ssc-cgl[/mains]            mock tests for an exam
 //   /mock/<id>, /mock/<id>/result     exam room, result
 //   /current-affairs[/2026-10-06]     today's (or that day's) news, sorted for the exam; ?category=sports
@@ -51,6 +53,7 @@ export function examCode(slug: string | null | undefined): string | undefined {
 export interface PracticeTarget {
   subject?: string;   // subject code, e.g. MATH
   chapter?: string;
+  concept?: string;   // sub-topic within the chapter
   exam?: string;      // exam code, e.g. SSC-CGL
   stage?: string;
   year?: string;
@@ -65,6 +68,7 @@ export function practiceUrl(t: PracticeTarget = {}): string {
   let path = '/practice';
   if (t.subject) path += `/${subjectSlug(t.subject)}`;
   if (t.subject && t.chapter) path += `/${t.chapter}`;
+  if (t.subject && t.chapter && t.concept) path += `/${t.concept}`;
   return withQuery(path, practiceQuery(t));
 }
 
@@ -81,6 +85,9 @@ function practiceQuery(t: PracticeTarget): Record<string, string | number | unde
   };
 }
 
+/** The topic index for a subject (default: the first), counted for one exam and stage when given. */
+export const topicsUrl = (subject?: string, exam?: string, stage?: string) =>
+  withQuery(subject ? `/topics/${subjectSlug(subject)}` : '/topics', { exam: exam ? examSlug(exam) : undefined, stage });
 export const smartUrl = () => '/practice/smart';
 export const aiPracticeUrl = (ids?: number[]) => withQuery('/practice/ai', { ids: ids?.length ? ids.join(',') : undefined });
 export const paperPracticeUrl = (slug: string) => `/practice/paper/${slug}`;

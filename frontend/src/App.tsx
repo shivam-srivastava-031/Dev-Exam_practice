@@ -12,6 +12,7 @@ import Mocks from './pages/Mocks';
 import Practice from './pages/Practice';
 import Result from './pages/Result';
 import Search from './pages/Search';
+import Topics from './pages/Topics';
 
 // Every route is listed in lib/urls.ts together with the helpers that build its links.
 export default function App() {
@@ -30,7 +31,11 @@ export default function App() {
         <Route path="practice/news/:day" element={<Practice key="news" mode="news" />} />
         <Route path="practice/:subject" element={<Practice key="subject" />} />
         <Route path="practice/:subject/:chapter" element={<Practice key="chapter" />} />
+        <Route path="practice/:subject/:chapter/:concept" element={<Practice key="concept" />} />
         <Route path="question/:id" element={<Practice key="question" mode="question" />} />
+
+        <Route path="topics" element={<Topics />} />
+        <Route path="topics/:subject" element={<Topics />} />
 
         <Route path="mocks" element={<Mocks />} />
         <Route path="mocks/:exam" element={<Mocks />} />
@@ -77,6 +82,7 @@ function Shell() {
             <NavLink to="/" end>Home</NavLink>
             <NavLink to="/practice" className={({ isActive }) =>
               ((isActive && !pathname.startsWith('/practice/news')) || pathname.startsWith('/question') ? 'active' : '')}>Practice</NavLink>
+            <NavLink to="/topics">Topic-wise PYQs</NavLink>
             <NavLink to="/mocks" className={({ isActive }) => (isActive || pathname.startsWith('/mock/') ? 'active' : '')}>Mocks</NavLink>
             <NavLink to="/current-affairs" className={({ isActive }) =>
               (isActive || pathname.startsWith('/practice/news') ? 'active' : '')}>Current affairs</NavLink>

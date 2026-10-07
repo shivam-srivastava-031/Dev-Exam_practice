@@ -150,6 +150,60 @@ def test_papers_have_readable_slugs_usable_everywhere(client):
     assert mts == {"M1": "ssc-mts-2019-08-02-shift-1", "M2": "ssc-mts-2024-10-15-shift-1"}
 
 
+def test_topic_index_counts_sub_topics_and_progress(client):
+    from app import db
+    conn = db.connect(client.app.state.db_path)
+    with conn:
+        conn.execute("UPDATE questions SET concept = 'successive-discount' WHERE subject = 'MATH' AND exam = 'SSC-CGL'")
+        conn.execute("UPDATE questions SET chapter = 'syllogism', concept = '_undefined' WHERE subject = 'REAS'")
+    conn.close()
+
+    index = client.get("/api/topics").json()
+    assert index["years"] == [2023, 2025]
+    subjects = {s["code"]: s for s in index["subjects"]}
+    assert list(subjects) == ["REAS", "GK", "MATH", "ENG"]  # catalogue order; no Computer questions
+    assert (subjects["MATH"]["n"], subjects["MATH"]["papers"]) == (5, 3)
+    [topic] = subjects["MATH"]["topics"]
+    assert (topic["chapter"], topic["label"], topic["n"], topic["per_paper"], topic["years"]) == (
+        "profit-and-loss", "Profit and Loss", 5, 1.67, [5, 0])
+    assert topic["concepts"] == [{"concept": "successive-discount", "label": "Successive Discount", "n": 3, "done": 0}]
+    assert subjects["REAS"]["topics"][0]["concepts"] == []  # a placeholder tag is not a sub-topic
+
+    cgl = {s["code"]: s for s in client.get("/api/topics", params={"exam": "SSC-CGL"}).json()["subjects"]}
+    assert (cgl["MATH"]["n"], cgl["MATH"]["papers"], cgl["MATH"]["topics"][0]["per_paper"]) == (3, 1, 3.0)
+    assert client.get("/api/topics", params={"exam": "SSC-XYZ"}).status_code == 422
+
+    page = client.get("/api/questions", params={"subject": "MATH", "concept": "successive-discount"}).json()
+    assert page["total"] == 3
+    assert page["items"][0]["concept_label"] == "Successive Discount"
+    concepts = client.get("/api/meta").json()["concepts"]
+    assert concepts == [{"subject": "MATH", "chapter": "profit-and-loss", "concept": "successive-discount",
+                         "label": "Successive Discount", "n": 3}]
+
+    def math(**params) -> dict:
+        return next(s for s in client.get("/api/topics", params=params).json()["subjects"] if s["code"] == "MATH")
+
+    def progress(d: dict) -> tuple:
+        return d["done"], d["attempts"], d["correct"], d["wrong"]
+
+    qid = page["items"][0]["id"]
+    client.post("/api/practice/answer", json={"question_id": qid, "chosen": 0})
+    m = math()
+    assert progress(m) == progress(m["topics"][0]) == (1, 1, 0, 1)
+    assert m["topics"][0]["concepts"][0]["done"] == 1
+    client.post("/api/practice/answer", json={"question_id": qid, "chosen": 1})
+    assert progress(math()["topics"][0]) == (1, 2, 1, 0)  # latest answer right: nothing left to retry
+    assert progress(math(exam="SSC-MTS")) == (0, 0, 0, 0)
+
+
+def test_sub_topic_labels_read_as_words():
+    from app.catalog import chapter_label
+    assert chapter_label("basic-si-amount-formula") == "Basic SI Amount Formula"
+    assert chapter_label("di-table-read") == "DI: Tables"
+    assert chapter_label("di-transitive-verbs") == "Ditransitive Verbs"
+    assert chapter_label("cubic-formula-a-3-b-3-c-3-3abc") == "Cubic Identity (a³ + b³ + c³ − 3abc)"
+
+
 def test_browser_errors_are_kept_newest_first_and_trimmed(client):
     assert client.get("/api/client-errors").json() == []
     for i in range(32):
